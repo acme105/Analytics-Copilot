@@ -258,3 +258,21 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
   - periods invented for questions that name none: e005 and e015;
   - share-of used where a filter was meant: e017;
   - an unrelated metric forced when none fits: e019 (canceled count) and h015 (median, sorted the wrong way).
+
+## D37. Five more governed metrics, and "no exact fit" goes to custom SQL
+
+- **Why:** the failure analysis found 8 failures where no metric fitted, so the planner forced the nearest one (a ratio for a total, item prices for payments, an average for a median).
+- **Added:** `total_freight`, `freight_per_order`, `payment_value`, `canceled_orders` and `median_delivery_days`, 24 metrics in all. These are everyday marketplace measures, but the need for them was seen on the golden set, so this falls under D29.
+- **Planner contract:** use a metric only when it fits *exactly*; otherwise reply `custom`. The scope prompt now says carrier costs aren't in the data (freight is what customers paid) (r014).
+
+## D38. Code computes dates; deterministic plan checks; lenient JSON
+
+- **Named periods:** the planner no longer writes dates. It names the period (year, plus a half, quarter or month, or inclusive first and last days), and `Period.to_range()` computes the exact half-open range. This removes off-by-one end dates such as 30 June (e002, h001, h019).
+- **Silent corrections:** "orders placed" becomes `orders_placed` (D24), and a comparison of periods never keeps a `limit` that would drop one of them.
+- **Checks before compiling, with one repair:** a period named in the question but missing from the plan, or the reverse; a breakdown the question doesn't ask for; a filter value the question doesn't mention (state names are matched with or without accents); growth between periods, which is sent to custom SQL; "which month…" without a grain. After one repair, the plan is trusted, so a wrong check can cost at most one call.
+- **JSON:** parsed with `strict=False`, so a raw newline or tab inside a string no longer fails (m019).
+
+## D39. Scorer: a year may come back as its 1 January date (signed off 2026-09-24)
+
+- **Rule:** 2017 equals `'2017-01-01'`, for example when the agent returns `DATE_TRUNC('year', …)`. Any other date doesn't match a year.
+- **Effect:** re-scoring the latest run with this rule flips exactly one answer, h007, whose values were all correct.
