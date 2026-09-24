@@ -3,7 +3,7 @@
 import pytest
 
 from analytics_copilot.llm import LLMOutputError, Usage, complete_json, extract_json
-from analytics_copilot.schemas import ScopeDecision
+from analytics_copilot.schemas import ScopeDecision, SQLGeneration
 
 from .conftest import FakeLLM
 
@@ -45,3 +45,11 @@ async def test_gives_up_after_the_retry() -> None:
             llm, "summary", [{"role": "user", "content": "q"}], ScopeDecision, usage
         )
     assert usage.parse_failures == 2
+
+
+def test_assumption_notes_given_as_a_string_become_a_list() -> None:
+    parsed = SQLGeneration.model_validate(
+        {"sql": "SELECT 1", "assumptions": {"notes": "Default window used.", "filters": "valid"}}
+    )
+    assert parsed.assumptions.notes == ["Default window used."]
+    assert parsed.assumptions.filters == ["valid"]

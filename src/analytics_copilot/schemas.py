@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from analytics_copilot.charts import ChartSpec
 
@@ -28,6 +28,12 @@ class GeneratedAssumptions(BaseModel):
     date_field: str | None = None
     filters: list[str] = []
     notes: list[str] = []
+
+    @field_validator("filters", "notes", mode="before")
+    @classmethod
+    def _single_string_is_a_list(cls, value: object) -> object:
+        # Small models often write one note as a plain string instead of a list.
+        return [value] if isinstance(value, str) else value
 
 
 class SQLGeneration(BaseModel):
