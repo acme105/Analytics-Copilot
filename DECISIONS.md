@@ -276,3 +276,17 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - **Rule:** 2017 equals `'2017-01-01'`, for example when the agent returns `DATE_TRUNC('year', …)`. Any other date doesn't match a year.
 - **Effect:** re-scoring the latest run with this rule flips exactly one answer, h007, whose values were all correct.
+
+## D40. Run with D37–D39 (code c5e45b3): +6 net, with 16 fixed and 9 regressed
+
+- **Result:** all 105: **77.1%** (81/105) vs 71.4%. Verified: 85.0% (34/40), unchanged (easy 18/20 up from 15; medium 16/20 down from 19). Hard 9/20 (from 7). Refusals **15/15**. 120 answers in 9.6 min.
+- **Fixed (16):** e002, e005, e015, e019, e025, e033, e036, e040, h006, h018, h019, m002, m019, m038, m042, r014. These are the targeted date, metric, JSON and refusal failures.
+- **Regressed (9), with causes:**
+  - "Group by only if the question asks" made the planner drop per-row breakdowns: m018 ("compare SP and RJ") and m024 ("for each of BA, PE, CE") collapsed to one total;
+  - a time grain invented from the word "days": e009 ("how many days does delivery take" became a daily series);
+  - share_of used without any share wording: m041 (the rule is in the prompt, but no check enforced it);
+  - a named month dropped from the period: e029 ("August 2018" became all of 2018; the check tests only "has a period");
+  - a time unit put in group_by (`"month"`) failed compilation, went to custom SQL and was wrong there: m015. A misplaced day filter did the same for e027;
+  - sampling variance on custom SQL: m025, m015, e027 were right in the last run with similar plans;
+  - h007 came back pivoted (late and on-time as columns). That's correct content in a different shape, which the scorer doesn't accept.
+- **Lesson:** a prompt change can fix one class and break another. Only deterministic checks and normalisations are reliable, and custom SQL's sampled candidates make single runs noisy by several questions.
