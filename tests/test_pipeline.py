@@ -106,6 +106,7 @@ async def test_modes_see_different_context(make_pipeline) -> None:
     await pipeline.ask("How many orders?", mode="raw_schema")
     raw_prompt = llm.calls[1][1][0]["content"]
     assert "TABLE stg_orders" in raw_prompt and "Governed metrics" not in raw_prompt
+    assert "does not say which date" not in raw_prompt  # raw mode gets no business rules
 
     pipeline, llm = make_pipeline([IN_SCOPE, sql_reply(TOYS_BY_STATE), "RJ had R$ 250 of GMV."])
     await pipeline.ask("What was total revenue?", mode="semantic_rag")
@@ -113,6 +114,7 @@ async def test_modes_see_different_context(make_pipeline) -> None:
     assert "TABLE fct_orders" in rag_prompt and "- gmv (GMV" in rag_prompt
     assert "- avg_review_score" not in rag_prompt  # only retrieved metrics are shown
     assert "Example questions with correct SQL" in rag_prompt
+    assert "does not say which date" in rag_prompt
 
 
 async def test_raw_mode_cannot_query_marts(make_pipeline) -> None:

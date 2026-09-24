@@ -51,6 +51,8 @@ SEMANTIC_RULES = """Business rules:
 - Unless the question gives dates, use the default window {start} to {end} (end exclusive)
   on the metric's date field.
 - Compute metrics exactly as defined below: same view, expression and required filters.
+- If the question does not say which date to use (e.g. "delivered orders in 2017"), use the
+  metric's date field (purchase date) and say so in assumptions.notes.
 - Put each metric you use in metrics_used by its name."""
 
 SUMMARY_SYSTEM = """You summarise query results for a business reader.
