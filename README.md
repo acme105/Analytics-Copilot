@@ -6,54 +6,199 @@ An AI-native, self-serve analytics copilot over **99K+ orders** from the [Olist 
 - **A semantic layer of 19 core governed business metrics,** plus supporting freight, payment and cohort measures, with retrieval and plan-to-SQL compilation. Answers rest on explicit business definitions (what counts as an order, a customer, a late delivery), not on the model's guess at the raw schema.
 - **A golden-set evaluation framework:** **85% execution accuracy (89/105)**, and **88% of answers grounded**, meaning every number in the summary traces back to the result of the governed query.
 
-## Why
+## The core idea
 
-Text-to-SQL demos look good until the numbers are wrong in ways nobody notices: canceled orders counted as sales, a delivery date used where the purchase date was meant, an average taken over item rows instead of orders. This project treats that as the core problem. The model decides *what* is being asked, governed definitions and deterministic code decide *how* it's computed, and every answer shows its work.
+Text-to-SQL demos fail quietly: canceled orders counted as sales, a delivery date used where the purchase date was meant, an average taken over item rows instead of orders. The SQL runs; the number is wrong.
 
-## How it works
+The design principle that fixes this: **the language model only decides *what* is being asked. Everything that must be exactly right is decided by governed definitions and deterministic code:** filters, dates, table choice, SQL shape, safety and number checking. Accuracy rose from 5% (the model writing SQL against raw tables) to 85% by moving decisions out of the model, one class at a time.
 
 ```mermaid
 flowchart LR
-    Q[Question] --> S{Scope check}
-    S -- out of scope --> R[Refuse with a reason]
-    S -- in scope --> P[Planner<br/>picks a governed metric,<br/>breakdown, period, sort]
-    SL[(Semantic layer<br/>metrics · dimensions<br/>business rules · glossary)] --> P
-    P -- plan --> C[Compiler<br/>plan → SQL]
-    P -- no metric fits --> X[Custom SQL<br/>rule gate · result checks<br/>3-way self-consistency]
-    C --> G[SQL guard<br/>read-only, allowed tables,<br/>LIMIT]
+    Q[Question] --> S{1. Scope check<br/>LLM classifier}
+    S -- refuse --> R[Refusal + reason]
+    S -- answer --> P[2. Planner<br/>LLM → JSON plan]
+    SL[(Semantic layer)] --> P
+    P --> N[3. Normalise + check<br/>deterministic]
+    N -- metric plan --> C[4. Compiler<br/>plan → SQL in code]
+    N -- no metric fits --> X[5. Custom SQL<br/>rule gate · result checks<br/>3-way vote]
+    C --> G[6. SQL guard +<br/>read-only execution]
     X --> G
-    G --> D[(DuckDB warehouse)]
-    D --> V[Chart spec +<br/>summary]
-    V --> GC{Grounding check<br/>every number traced<br/>to the rows}
+    G --> V[7. Chart + summary]
+    V --> GC{8. Grounding check}
     GC --> A[Answer + show your work]
 ```
 
-1. **Scope check.** Questions the data can't answer (profit, personal data, forecasts, traffic) are refused with a reason.
-2. **Planner.** For most questions the model doesn't write SQL at all. It returns a small plan: which governed metric, which breakdown, which period, and any sort, top-N, comparison or period-over-period change. Deterministic checks catch invented periods, filters or breakdowns before the plan is used.
-3. **Compiler.** Code turns the plan into SQL. Required filters, the date field, the analysis window and the correct table come from the semantic layer, so they can't be got wrong.
-4. **Custom SQL** (only when no metric fits). The model writes SQL with the relevant definitions and examples in context. A rule gate checks it against the business rules before it runs; result checks catch empty, out-of-window or mis-shaped results; three candidates are generated and the majority result wins.
-5. **SQL guard and execution.** Queries are validated with sqlglot (one SELECT, allowed tables and columns, LIMIT enforced). They run on a read-only DuckDB connection with file access disabled and a timeout.
-6. **Answer.** A chart spec is chosen from the shape of the result, and a 2–3 sentence summary is written from the rows only. The grounding check verifies every number in it; if one can't be traced, the summary is regenerated once and then replaced by a template.
+## Algorithm, stage by stage
 
-Every answer returns: the SQL, the tables used, the metric definitions, the assumptions (date field, filters, data coverage), the chart spec, the rows, latency by stage and token usage.
+### 0. Warehouse: facts pre-joined, rules applied once
+**Algorithm.** [warehouse.py](src/analytics_copilot/warehouse.py) builds DuckDB in three layers:
+1. **Raw tables:** the CSVs loaded with every column as text.
+2. **Staging views:** type every column and apply each cleaning rule as commented SQL. For example, canceled and unavailable orders get `is_valid = false`; "late" compares calendar dates; the latest review per order is kept.
+3. **Three mart tables:** `fct_orders` (one row per order), `fct_order_items` (per item) and `fct_payments` (per payment). **Each carries every dimension,** including window-function results: a person's order number, the date of their next order, and a point-in-time seller tier ranked on GMV from the 3 months before the order.
 
-## Semantic layer
+**Decision.** Pre-joining means **no question ever needs a join at runtime**, which removes the largest class of text-to-SQL errors. Typing in explicit staging SQL, instead of trusting a CSV sniffer, makes every cleaning rule reviewable. Two definitions carry most of the weight:
+- a customer is `customer_unique_id`, because `customer_id` is issued per order and would make repeat purchase 0%;
+- every date means the **purchase** date.
 
-Defined in [semantic/metrics.yaml](semantic/metrics.yaml):
+### The semantic layer: the single source of truth
+[semantic/metrics.yaml](semantic/metrics.yaml) holds everything the model is allowed to rely on:
+- **Metrics:** 19 core governed metrics (GMV, orders, orders placed, AOV, items per order, active, new and 90-day repeat customers, active sellers, GMV per seller, freight ratio, on-time and late rate, delivery days, cancellation rate, review score, share of 1–2★ reviews, instalments, card payment share), plus supporting freight, payment and cohort measures. Each is **one aggregate expression over one table**, with its **required filters**, date field, unit and synonyms.
+- **Dimensions:** state, category, payment type, seller tier, delivery status (late or on time) and customer type (first or repeat order). Each can carry its own required filter; delivery status, for example, only exists for delivered orders.
+- **Business rules and a glossary:** plain-language definitions ("repeat order = order 2 onward, pooled"), shown to the model.
 
-- **19 core governed metrics:** GMV, orders, orders placed, AOV, items per order, active, new and 90-day repeat customers, active sellers, GMV per seller, freight ratio, on-time and late delivery rate, average delivery days, cancellation rate, average review score, share of 1–2★ reviews, credit-card instalments, and credit-card payment share. Supporting measures cover total freight, freight per order, payment value, canceled orders, median delivery days and customer cohorts.
-- Each metric has a description, an SQL expression, its grain, required filters, a date field, a unit and synonyms.
-- **Dimensions:** customer state, product category, payment type, seller tier (point-in-time, from trailing GMV), delivery status (late or on time) and customer type (first or repeat order). Time grains run from day to year.
-- **Business rules and a glossary** capture the decisions that make numbers trustworthy: canceled and unavailable orders aren't sales; delivery metrics use delivered orders; every date is the purchase date; a customer is a person (`customer_unique_id`), not an order id.
+**Decision.** A small in-house compiler, not MetricFlow or Cube: about 300 lines of Python that fully explain every number, and a governed baseline the evaluation can trust.
 
-The warehouse ([src/analytics_copilot/warehouse.py](src/analytics_copilot/warehouse.py)) loads the raw CSVs as text, types and cleans them in staging views (every rule commented), and materialises pre-joined order, item and payment tables. The data profile and quirks are in [data/README.md](data/README.md).
+### 1. Scope check: a zero-shot LLM classifier
+**Algorithm.** One model call at **temperature 0**. The prompt is fixed: it describes what the warehouse contains and what it doesn't (costs, profit, carrier costs, marketing, traffic, inventory, returns, personal data, anything after October 2018), and asks for `{"in_scope": true|false, "reason": "…"}`. The boolean decides, with no threshold. A malformed reply gets one retry with the parse error. If the answer is `false`, the pipeline stops and returns the reason as the refusal.
+
+**Decision.** Out-of-scope questions are phrased too openly for keyword rules ("what will next quarter look like", "which campaign drove orders"), so a model judges them. **Trade-offs:**
+- it judges from prose, not from what the system can compute, so it can match surface words. It once refused "how many people bought for the first time" as personal data;
+- it costs about 2 seconds per question.
+
+### 2. Planner: the model classifies intent instead of writing SQL
+**Algorithm.** One model call at temperature 0. The prompt holds:
+- every governed metric, with its description, synonyms and whether it's additive;
+- every dimension, with its **real values** read from the warehouse ('SP', 'credit_card', …);
+- the glossary;
+- eight worked examples.
+
+The model returns a JSON **plan**, validated by a Pydantic schema:
+
+| Field | Purpose | Question pattern |
+|---|---|---|
+| `metric` | which governed metric | "late delivery rate" |
+| `group_by` / `filters` | breakdown / restriction | "by state", "in São Paulo" |
+| `period` / `periods` | one period, or several side by side | "in 2018", "Q1 2017 vs Q1 2018" |
+| `grain` | trend over time | "each month" |
+| `share_of` | share of a total (additive metrics only) | "what % of GMV came from SP" |
+| `change` | versus the previous period | "month-over-month", "biggest drop" |
+| `compare` | first-to-second-period change per group | "which category grew most" |
+| `min_group_size` | a threshold on each group | "among states with ≥1,000 orders" |
+| `sort`, `limit` | rankings | "worst 5" |
+
+If no metric fits **exactly**, the model answers `{"kind": "custom"}` and the question goes to step 5.
+
+**Decision.** This is bounded semantic planning with deterministic compilation. Asking a 3B model to *classify* a question into a small vocabulary is far more reliable than asking it to *write* correct SQL. **The model names periods (`{"year": 2018, "half": 1}`) and code computes the dates,** because models get exclusive end dates wrong (30 June instead of 1 July).
+
+### 3. Normalisation and plan checks: deterministic, before anything runs
+**Algorithm.** Two passes over the plan.
+
+**Normalisation** silently fixes mistakes that have only one correct fix:
+- "orders" in a question that says "placed" → `orders_placed` (placed orders include cancellations);
+- a time unit in `group_by` → `grain`;
+- a date "filter" → a one-day period;
+- several filter values in a comparing question ("compare SP and RJ", "for each of") → a breakdown by that dimension;
+- a `limit` that would drop a compared period → removed.
+
+**Checks** compare the plan with the question's wording, using regular expressions and word lists:
+- a period named in the question but missing from the plan, or the reverse;
+- a month named but not set;
+- a breakdown or filter value the question never mentions (state names are matched with or without accents);
+- share without share wording;
+- a grain without trend wording;
+- growth without `compare`;
+- "month-over-month" without `change`.
+
+Each problem becomes one sentence of feedback, and the model gets **one** repair. After that, the checks are skipped and the plan is trusted.
+
+**Decision.** Rules in the prompt were measurably unreliable: a new instruction fixed one failure class and broke another. Checks in code aren't. Limiting the loop to one repair caps the cost of a check that misfires at a single model call.
+
+### 4. Compiler: plan to SQL, in code
+**Algorithm.** `compile_metric` ([semantic.py](src/analytics_copilot/semantic.py)):
+1. **Definition:** take the metric's table and expression.
+2. **Filters:** add the metric's required filters, plus those of every dimension used.
+3. **Dates:** convert each period to a half-open range, and **clip it to the analysis window** (January 2017 – August 2018), so "2018" becomes January–August 2018.
+4. **Shape,** by option:
+   - *plain:* `SELECT dims, expr … GROUP BY ALL [HAVING COUNT(*) >= N]`;
+   - *`share_of`:* aggregate per value in a CTE, then `SUM(value) FILTER (WHERE dim IN (…)) / SUM(value)`;
+   - *`change`:* fetch **one grain unit before** the asked start (never before the window), compute `LAG` partitioned by the dimensions, then keep only the asked periods. January gets a real change against December;
+   - *`compare`:* one CTE per period (each with the threshold), joined on the dimensions, returning the value in each period and the difference.
+5. **Order:** `ORDER BY` the value, or the change, `NULLS LAST`, then `LIMIT`.
+
+**Decision.** Everything the model could get subtly wrong (the delivered-only filter, the purchase date, the window end, the table grain, the period-over-period boundary) comes from the definition. On questions the planner can express, this route is right 89% of the time (86 of 97).
+
+### 5. Custom SQL: for questions no metric fits
+**Algorithm.**
+- **Context:** the table definitions with column notes, the metrics retrieved for the question, every dimension's values, the glossary, similar example queries, and the business rules. The rules go last, where small models follow them best.
+- **Retrieval** is lexical. Question and metric text are tokenised (lower case, stopwords removed, plural *s* stripped). Each metric scores **3 per shared word with its name, label or synonyms, plus 1 per shared word with its description**, and the top 4 are kept. The top 3 example queries by word overlap (Jaccard) are added.
+
+Then **self-consistency** over 3 candidates:
+```
+for sample in 0, 1, 2:
+    sql = model(prompt, temperature 0 for sample 0, else 0.7 with seed = sample)
+    if rule_gate(sql) finds violations:  sql = one repair naming them
+    rows = guard + execute                (one repair on a validation or execution error)
+    if result_checks(rows) find problems: one fix, kept only if it has fewer problems
+answer = the result most candidates share (ties go to the greedy candidate)
+```
+
+**The rule gate** reads the SQL's structure with sqlglot and flags:
+- no purchase-date filter, or filtering on another date column;
+- a metric used without its required filter;
+- delivery measures without `is_delivered`;
+- sales figures without `is_valid`;
+- a join of two row-level fact tables on a dimension alone. Every São Paulo order would meet every other São Paulo order: about 800 million rows.
+
+**The result checks** flag:
+- an empty result;
+- dates outside the window;
+- an all-NULL column;
+- two value columns that are identical in every row (a split that didn't happen);
+- a change that's empty only in the first period;
+- a single value for a question that compares groups.
+
+**The vote** fingerprints each result: rows sorted, numbers rounded to 6 significant digits, so equivalent queries vote together. Fixed seeds make reruns repeatable.
+
+**Decisions:**
+- **Lexical retrieval, not embeddings:** the corpus is small and curated, synonyms do the job embeddings would, there's no extra model on the GPU, and every retrieval can be explained by the words that matched.
+- **Result feedback:** execution-feedback refinement is the one add-on that research found helps across models at low cost.
+- **Majority voting** follows OmniSQL and CHASE-SQL.
+- **No cost check before execution:** DuckDB's `EXPLAIN` estimated 1.3M rows for the 800M-row blow-up. Reading the join condition catches it; the estimate doesn't.
+
+### 6. SQL guard and execution: two independent defences
+**Algorithm.**
+- **The guard** ([sql_guard.py](src/analytics_copilot/sql_guard.py)) parses the SQL with sqlglot. It requires exactly one statement, and that it be a SELECT (or a UNION of SELECTs). It walks the whole query tree and rejects any write or admin node, including a `DELETE` hidden inside a `WITH`. Tables must be allowed or be CTEs, so `read_csv` and other table functions are rejected. Column names must exist in some allowed table or be defined in the query. A missing `LIMIT` is added and a larger one lowered.
+- **The executor** ([executor.py](src/analytics_copilot/executor.py)) opens a fresh DuckDB connection per query, **read-only with file and network access disabled**. It runs the query in a worker thread, so the API stays async, while a timer calls `interrupt()` after 10 seconds. Decimals and time intervals come back as plain numbers.
+
+**Decision.** A parser can miss an edge case. Read-only mode, blocked file access and the timeout hold even if the guard is wrong, and each is tested on its own.
+
+### 7. Chart and summary
+**Algorithm.**
+- **The chart** is chosen from the result's shape:
+  - one numeric value → a number tile;
+  - a date column plus numbers → a line, with an optional series;
+  - one category column plus numbers (50 rows or fewer) → a bar;
+  - anything else → a table.
+
+  The model's hint is used only if the data supports it.
+- **The summary:** the model writes 2–3 sentences from the first 30 rows only, with no speculation, in English number format.
+
+### 8. Grounding check: every number must trace to the rows
+**Algorithm.** A regular expression extracts every number from the summary, reading R$, %, k/M/million and thousands separators. Each must match one candidate:
+- a result cell;
+- a ratio written as a percentage;
+- a column total;
+- a difference, ratio or % change between two values in the same column (only for columns of 24 values or fewer, where chance matches stay unlikely);
+- the row count or a rank;
+- a date part;
+- a number from the question.
+
+The tolerance is half a unit of the last digit shown plus 0.5%, so 0.06791 matches "6.8%". If any number fails, the summary is regenerated once with the failing numbers named. If it fails again, a template built from the first row replaces it.
+
+**Decision.** It's deterministic and explainable: a failure lists the exact numbers that couldn't be traced. **Trade-off:** it verifies numbers, not claims. "Sales rose" over falling rows would pass.
 
 ## Evaluation
 
-The golden set in [evals/golden.yaml](evals/golden.yaml) has 120 questions: 40 easy, 45 medium, 20 hard, and 15 that should be refused. Each has hand-written gold SQL, and items are reviewed by the project owner before they're marked verified.
+The golden set in [evals/golden.yaml](evals/golden.yaml) has 120 questions: 40 easy, 45 medium, 20 hard, and 15 that should be refused. Each has hand-written gold SQL, and items are reviewed by the project owner before they're marked verified. The gold SQL is written directly against the warehouse, never generated by the system under test.
 
-- **Execution accuracy:** the predicted result must match the gold result. Columns are matched by content, row order matters only for rankings, and floats get a 0.1% tolerance.
-- **Also measured:** refusal accuracy, grounding pass rate, p50/p95 latency, tokens, repair rate, and a failure taxonomy (wrong filter, wrong metric definition, wrong time grain, wrong table, hallucinated column).
+**Scoring algorithm** ([scoring.py](src/analytics_copilot/evals/scoring.py)):
+1. **Normalise cells:** numbers become floats; dates and midnight timestamps become ISO dates; text is trimmed and lower-cased.
+2. **Match columns by content:**
+   - for each gold column, find the predicted columns whose values match as a set, also accepting ×100 (a ratio shown as a percentage) and a year given as its 1 January date;
+   - try each assignment of distinct predicted columns to gold columns. Extra predicted columns are ignored.
+3. **Compare rows:** position by position for rankings, otherwise as sorted sets. Floats get a relative tolerance of 0.1%.
+4. **Fallback for pivoted results:** if the result spreads groups across columns, melt 2–4 numeric columns into rows and match again.
+5. **Failure label,** from comparing the predicted and gold SQL structures, in this order: made-up column → different tables → different aggregate or missing definition filter → different time grain → different filters or dates.
 
 **Results** (Qwen2.5-Coder-3B-Instruct, served with vLLM on a Kaggle T4):
 
@@ -71,9 +216,11 @@ The golden set in [evals/golden.yaml](evals/golden.yaml) has 120 questions: 40 e
 | Out-of-scope questions correctly refused | 15/15 |
 | Median latency | about 11 s per question on a T4 |
 
-The full reports are in [results/](results/). Every design decision, its alternatives and its trade-off is logged in [DECISIONS.md](DECISIONS.md), including the failures and what they taught.
+The full reports are in [results/](results/). Every design decision, with its alternatives and trade-off, is logged in [DECISIONS.md](DECISIONS.md), including failures and what they taught.
 
-**Known limits:** multi-step questions that fall outside the plan language (for example cohorts with custom horizons, or conditions tested on each order) still go to model-written SQL. That's where most remaining errors are, and the next step is a stronger SQL model for that route only.
+**Known limits:**
+- **Multi-step questions** outside the plan language (cohorts with custom horizons, conditions on each order) still depend on model-written SQL, which is where most remaining errors are. The next step is a stronger SQL model for that route only.
+- **The scope check** judges from a description, not from what the planner can compute.
 
 ## Run it
 
@@ -89,7 +236,7 @@ make serve       # FastAPI on http://localhost:8080 (point .env at an OpenAI-com
 
 | Endpoint | What it does |
 |---|---|
-| `POST /ask` `{question}` | Governed answer with SQL, metric definitions, assumptions, chart spec, rows, grounded summary, latency and tokens |
+| `POST /ask` `{question}` | Governed answer with SQL, metric definitions, assumptions, route and plan, chart spec, rows, grounded summary, latency and tokens |
 | `GET /metrics` | The semantic-layer catalogue |
 | `GET /health` | Liveness and configuration |
 
