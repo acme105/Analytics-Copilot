@@ -337,3 +337,18 @@ These fix the 9 regressions of D40 in code, not in the prompt.
 - **Seed:** each sampled custom-SQL candidate now uses its sample number as the vLLM seed, so reruns give the same candidates. This removes most of the run-to-run noise seen in D40.
 - **Pivot rule:** if the agent spreads groups across value columns (year, late, on_time), the scorer unpivots 2–4 numeric columns into rows when that gives exactly the gold row count, and then matches as usual. Matches are flagged `pivoted`.
 - **Held-out hygiene:** new planner examples were checked against the held-out set for word overlap *and* sentence template. One example taught exactly held-out x_h09's pattern and was replaced; two were rephrased away from x_h04 and x_h05's templates.
+
+## D46. First run with the held-out set (code 86a4471)
+
+- **Run:** 160 answers (120 dev + 40 held-out) in 11.7 minutes at concurrency 4, seeded.
+- **Dev:**
+  - verified **95.0%** (38/40; easy 20/20, medium 18/20), up from 85%;
+  - all 105 **84.8%** (89/105), up from 78.1% (re-scored with the pivot rule);
+  - hard **12/20**, up from 10; refusals 15/15.
+- **Held-out** (unverified, never tuned on): **76.5%** (26/34; easy 10/12, medium 11/12, hard 5/10). Refusals 6/6, and 1 answerable question was wrongly refused.
+- **Reading:** the held-out result is about 8 points below dev (84.8%). That gap is the expected inflation from developing on the dev set. The held-out 95% interval (60–88%) is wide with 34 items.
+- **By route:**
+  - dev: metric plan 86/97, custom SQL 3/7;
+  - held-out: metric plan 24/26, custom SQL 2/7.
+
+  The planner now handles most questions, and custom SQL is still the weak spot.
