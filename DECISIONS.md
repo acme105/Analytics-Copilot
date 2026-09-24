@@ -28,14 +28,47 @@ Each entry records the decision, the options considered, why this one, and the t
 - **Chosen:** `customer_unique_id`. `customer_id` is issued per order (99,441 ids for 96,096 people), so it would make every customer look new and repeat purchase rate would be 0%.
 - **Trade-off:** none worth noting. Joins still go through `customer_id`, and the person-level id comes from the customers table.
 
-## D5. Default analysis window: 2017-01-01 to 2018-08-31 by purchase date (proposed, awaiting approval)
+## D5. Default analysis window: 2017-01-01 to 2018-08-31 by purchase date (approved 2026-09-24)
 
 - **Options:** all data (Sep 2016 – Oct 2018); 2017-01 to 2018-08; 2017-01 to 2018-07, to avoid right-censored delivery data.
-- **Chosen (proposed):** 2017-01 to 2018-08. It keeps 99.6% of orders and drops 2016 (329 orders, with an empty November) and Sep–Oct 2018 (20 orders, none delivered).
+- **Chosen:** 2017-01 to 2018-08. It keeps 99.6% of orders and drops 2016 (329 orders, with an empty November) and Sep–Oct 2018 (20 orders, none delivered).
 - **Trade-off:** delivery metrics for late August 2018 are right-censored. Slow orders were still `shipped` at extraction, so those weeks look better than they were. Delivery metrics will carry a note rather than a shorter window for everything.
 
 ## D6. Default date field is the purchase timestamp
 
 - **Options:** purchase, approval or delivery timestamp as the default.
-- **Chosen:** `order_purchase_timestamp`, the moment demand happened and the field every order has. Delivery metrics (on-time rate, delivery days) declare `order_delivered_customer_date` or the purchase date explicitly in their definition.
+- **Chosen:** `order_purchase_timestamp` for all 18 metrics, including delivery metrics. It's the moment demand happened and the field every order has. "On-time rate in March" therefore means "of orders placed in March, the share that arrived on time", a cohort view. That keeps delivery metrics comparable with orders and GMV for the same month.
 - **Trade-off:** "delivered in 2017" questions are ambiguous. The answer states the date field it used in `assumptions`, and the golden set includes questions that test this.
+
+## D7. Warehouse layers: raw text → staging views → materialised marts
+
+- **Options:** query the CSVs directly; typed raw tables only; raw → staging → marts (dbt-style), built by a Python script.
+- **Chosen:** raw tables loaded with every column as text, `stg_*` views that type every column and hold the cleaning rules as commented SQL, and `fct_*` / `dim_*` tables materialised at build time.
+- **Why:** typing is explicit and reviewable in one place, not guessed by a CSV sniffer. Marts are materialised because they contain window functions (seller tiers, customer order number) that shouldn't rerun on every question.
+- **Trade-off:** no dbt. The SQL lives in `warehouse.py` as ordered statements, with no lineage graph or per-model tests. At 10 tables that's simpler to read and to explain; dbt would pay off at 50+ models.
+
+## D8. Order-level metrics use the order's highest-value item and payment for dimensions
+
+- **Options:** fan orders out to every category/seller (double counts orders); allocate order metrics by item-value share (fractional orders); pick one primary item and payment per order.
+- **Chosen:** primary item and payment by value. It affects few orders: 1.3% have several sellers, 0.8% several categories and 2.3% several payment types.
+- **Trade-off:** a small misattribution on those orders for order-grain metrics (orders, AOV, delivery, reviews). Item-grain metrics (GMV, freight ratio, active sellers) use each item's own category and seller tier, so they are exact.
+
+## D9. Seller tier: point-in-time percentile of trailing 3-month GMV
+
+- **Options:** a fixed tier from all-time GMV; the current month's GMV; trailing 3 full months before the order month.
+- **Chosen:** trailing 3 full months, ranked within each month: top 10% = `top`, next 40% = `mid`, rest = `long_tail`, no trailing GMV = `new_or_dormant`.
+- **Why:** all-time GMV leaks the future (a seller who grows in 2018 would be "top" in 2017), and current-month GMV makes tier and outcome circular. The trailing window only uses information available at the time.
+- **Trade-off:** a seller's tier changes month to month, and new sellers spend up to 3 months as `new_or_dormant`. Measured: `top` sellers carry 41% of GMV in the window.
+
+## D10. "Late" compares calendar dates, not timestamps
+
+- **Options:** `delivered_at > estimated_delivery_at` as timestamps; compare as dates.
+- **Chosen:** dates. The estimate is a date stored as midnight, so a timestamp comparison marks an order arriving at 15:00 on the promised day as late.
+- **Measured:** late delivery rate is 6.79% by date and 8.13% by timestamp over the window. That 1.3-point gap is entirely orders that arrived on the promised day.
+
+## D11. Semantic layer: one aggregate expression over one mart per metric, compiled to SQL
+
+- **Options:** a metrics framework (MetricFlow, Cube); let the LLM write full SQL from metric descriptions; a small in-house compiler.
+- **Chosen:** each metric in `semantic/metrics.yaml` is one aggregate expression over one pre-joined mart, plus required filters and a date field. `compile_metric` adds the window, time grain, dimensions and filters. No joins happen at query time, because the marts already carry every dimension.
+- **Why:** about 100 lines of code that fully explain what each number means. It gives the eval harness a deterministic, governed baseline to compare the LLM against.
+- **Trade-off:** metrics can't combine views (for example GMV per delivered order) without a new mart column. That's acceptable at 18 metrics.

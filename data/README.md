@@ -69,3 +69,20 @@ There are no orphaned foreign keys: every item, payment and review points at an 
 - Why: 2016 has 329 orders in three isolated months with a gap in November, so month-on-month and year-on-year comparisons there are meaningless. After August 2018 nothing is delivered.
 - Caveat: for delivery-time metrics, orders from the last weeks of August 2018 are right-censored. Orders that were slow to arrive were still `shipped` when the data was extracted, so late-delivery rates for those weeks will look better than they were. Metric definitions should flag this.
 - The warehouse keeps all rows. The window is a default filter in the semantic layer, and every answer states it in `assumptions`.
+
+## Warehouse (`make warehouse` → `warehouse/olist.duckdb`)
+
+| Layer | Objects | What it does |
+|---|---|---|
+| raw | `raw_<table>` | CSVs loaded as text, untouched |
+| staging | `stg_orders`, `stg_order_items`, `stg_order_payments`, `stg_order_reviews`, `stg_customers`, `stg_products`, `stg_sellers` | Types every column and applies the cleaning rules (commented in [warehouse.py](../src/analytics_copilot/warehouse.py)) |
+| marts | `fct_orders` (order), `fct_order_items` (item), `fct_payments` (payment), `dim_seller_month` (seller × month) | Pre-joined facts carrying every dimension; the semantic layer queries only these |
+
+Cleaning rules, in brief:
+- Canceled and unavailable orders are not valid. They are kept in the tables for cancellation rate.
+- A delivery date only counts on delivered orders.
+- Late means the delivery date is after the estimated date, compared as calendar dates.
+- Reviews: the latest answered review per order.
+- 0 instalments count as 1.
+- Categories: English name, falling back to Portuguese, then `unknown`.
+- Order-level category, seller tier and payment type come from the order's highest-value item or payment.

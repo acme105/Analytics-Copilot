@@ -2,7 +2,7 @@
 
 Ask business questions in plain English about the [Olist marketplace dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) and get back answers you can check: governed metric definitions, the SQL that ran, and a summary grounded in the returned rows. Every part is evaluated against a golden dataset.
 
-**Status:** Phase 0 (dataset verification) done. See [data/README.md](data/README.md) and [results/phase0_profile.md](results/phase0_profile.md).
+**Status:** Phase 1 (warehouse and semantic layer) done: 18 governed metrics in [semantic/metrics.yaml](semantic/metrics.yaml). Data notes are in [data/README.md](data/README.md).
 
 ## Prerequisites
 
@@ -16,6 +16,8 @@ Ask business questions in plain English about the [Olist marketplace dataset](ht
 make install   # uv sync
 make data      # download the 9 Olist CSVs into data/raw/
 make profile   # regenerate results/phase0_profile.md
+make warehouse # build warehouse/olist.duckdb
+make test      # unit tests + metric checks against the warehouse
 ```
 
 Design decisions and their trade-offs are logged in [DECISIONS.md](DECISIONS.md).
