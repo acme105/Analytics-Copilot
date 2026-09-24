@@ -211,3 +211,8 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - vLLM reports room for about 20 concurrent full-length (8,192-token) requests on the T4, and our prompts are about 3,000 tokens. The owner chose 4 in flight (about half of a comfortable maximum), with vLLM prefix caching on so the shared start of each prompt is processed once.
 - **Trade-off:** latency now includes queueing on the shared GPU and isn't comparable to the first run's sequential latency. The run metadata says so.
+
+## D31. Gold review batch 2 decisions (2026-09-24)
+
+- **m024 reworded** to "What was GMV **for each of** Bahia, Pernambuco and Ceará…". The old wording fairly allowed one combined total (R$521,930, which `semantic_rag` returned), while the gold has one row per state. The question changed to say what the gold measures; the gold did not change.
+- **Rankings stay literal (m004, m036, m037):** states are ranked by the rate with no minimum volume, even though small states such as Roraima (RR) can lead by chance. The agent shouldn't be marked wrong for skipping a threshold the question never states. A question that wants a threshold must say so, as h003 and h006 do.

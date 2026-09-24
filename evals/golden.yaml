@@ -426,6 +426,7 @@ items:
     difficulty: medium
     category: delivery
     ordered: true
+    notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
     gold_sql: |
       SELECT customer_state, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
       FROM fct_orders
@@ -640,9 +641,10 @@ items:
       GROUP BY 1
 
   - id: m024
-    question: What was GMV in Bahia, Pernambuco and Ceará (BA, PE, CE) in 2018?
+    question: What was GMV for each of Bahia, Pernambuco and Ceará (BA, PE, CE) in 2018?
     difficulty: medium
     category: gmv
+    notes: "Reworded from \"GMV in BA, PE, CE\", which could fairly mean one combined total (D31)."
     gold_sql: |
       SELECT customer_state, SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND customer_state IN ('BA', 'PE', 'CE')
@@ -772,6 +774,7 @@ items:
     difficulty: medium
     category: reviews
     ordered: true
+    notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
     gold_sql: |
       SELECT customer_state, AVG(review_score) AS avg_review_score FROM fct_orders
       WHERE review_score IS NOT NULL
@@ -783,6 +786,7 @@ items:
     difficulty: medium
     category: cancellations
     ordered: true
+    notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
     gold_sql: |
       SELECT customer_state, AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
       FROM fct_orders

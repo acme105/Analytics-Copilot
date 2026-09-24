@@ -343,7 +343,9 @@ GROUP BY 1
 - ✅ **semantic**: 2017-01-01 12.65; 2017-02-01 13.17; 2017-03-01 12.95 … (12 rows)
 - ✅ **semantic_rag**: 2017-01-01 12.65; 2017-02-01 13.17; 2017-03-01 12.95 … (12 rows)
 
-## m024: What was GMV in Bahia, Pernambuco and Ceará (BA, PE, CE) in 2018?
+## m024: What was GMV for each of Bahia, Pernambuco and Ceará (BA, PE, CE) in 2018?
+
+_Reworded (D31): the old wording could fairly mean one combined total._
 
 Ordered: no. Rows: 3
 
