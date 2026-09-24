@@ -19,6 +19,7 @@ items:
     difficulty: easy
     category: orders
     notes: "\"Placed\" counts every order whatever its status (D24)."
+    verified: true
     gold_sql: |
       SELECT COUNT(*) AS orders FROM fct_orders
       WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
@@ -27,6 +28,7 @@ items:
     question: How much GMV did Olist generate in the first half of 2018?
     difficulty: easy
     category: gmv
+    verified: true
     gold_sql: |
       SELECT SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-07-01'
@@ -35,6 +37,7 @@ items:
     question: What was the average order value in 2018?
     difficulty: easy
     category: gmv
+    verified: true
     gold_sql: |
       SELECT SUM(gmv) / COUNT(*) AS aov FROM fct_orders
       WHERE is_valid AND items > 0
@@ -44,6 +47,7 @@ items:
     question: What is the overall average review score?
     difficulty: easy
     category: reviews
+    verified: true
     gold_sql: |
       SELECT AVG(review_score) AS avg_review_score FROM fct_orders
       WHERE review_score IS NOT NULL
@@ -53,6 +57,7 @@ items:
     question: What share of delivered orders arrived late overall?
     difficulty: easy
     category: delivery
+    verified: true
     gold_sql: |
       SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate FROM fct_orders
       WHERE is_delivered
@@ -62,6 +67,7 @@ items:
     question: How many sellers were active in 2017?
     difficulty: easy
     category: sellers
+    verified: true
     gold_sql: |
       SELECT COUNT(DISTINCT seller_id) AS active_sellers FROM fct_order_items
       WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
@@ -70,6 +76,7 @@ items:
     question: How many unique customers bought something in 2018?
     difficulty: easy
     category: customers
+    verified: true
     gold_sql: |
       SELECT COUNT(DISTINCT customer_unique_id) AS active_customers FROM fct_orders
       WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
@@ -78,6 +85,7 @@ items:
     question: What was the cancellation rate in 2017?
     difficulty: easy
     category: cancellations
+    verified: true
     gold_sql: |
       SELECT AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate FROM fct_orders
       WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
@@ -86,6 +94,7 @@ items:
     question: On average, how many days does delivery take?
     difficulty: easy
     category: delivery
+    verified: true
     gold_sql: |
       SELECT AVG(delivery_days) AS avg_delivery_days FROM fct_orders
       WHERE is_delivered
@@ -95,6 +104,7 @@ items:
     question: What was the freight ratio in 2018?
     difficulty: easy
     category: freight
+    verified: true
     gold_sql: |
       SELECT SUM(freight_value) / SUM(price) AS freight_ratio FROM fct_order_items
       WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
@@ -103,6 +113,7 @@ items:
     question: What is the average number of items per order?
     difficulty: easy
     category: orders
+    verified: true
     gold_sql: |
       SELECT AVG(items) AS items_per_order FROM fct_orders
       WHERE is_valid AND items > 0
@@ -112,6 +123,7 @@ items:
     question: How many new customers did we get in 2018?
     difficulty: easy
     category: customers
+    verified: true
     gold_sql: |
       SELECT COUNT(DISTINCT customer_unique_id) AS new_customers FROM fct_orders
       WHERE is_valid AND customer_order_number = 1
@@ -121,6 +133,7 @@ items:
     question: What percentage of payment value was paid by credit card?
     difficulty: easy
     category: payments
+    verified: true
     gold_sql: |
       SELECT SUM(payment_value) FILTER (WHERE payment_type = 'credit_card') / SUM(payment_value)
              AS credit_card_payment_share
@@ -131,6 +144,7 @@ items:
     question: What is the average number of credit card instalments?
     difficulty: easy
     category: payments
+    verified: true
     gold_sql: |
       SELECT AVG(installments) AS avg_installments FROM fct_payments
       WHERE is_valid AND payment_type = 'credit_card'
@@ -140,6 +154,7 @@ items:
     question: What share of reviews were 1 or 2 stars?
     difficulty: easy
     category: reviews
+    verified: true
     gold_sql: |
       SELECT AVG(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END) AS low_review_share
       FROM fct_orders
@@ -150,6 +165,7 @@ items:
     question: What was GMV in November 2017?
     difficulty: easy
     category: gmv
+    verified: true
     gold_sql: |
       SELECT SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND purchased_at >= DATE '2017-11-01' AND purchased_at < DATE '2017-12-01'
@@ -158,6 +174,7 @@ items:
     question: How many orders came from São Paulo state in 2018?
     difficulty: easy
     category: orders
+    verified: true
     gold_sql: |
       SELECT COUNT(*) AS orders FROM fct_orders
       WHERE is_valid AND customer_state = 'SP'
@@ -167,6 +184,7 @@ items:
     question: What was the on-time delivery rate in 2017?
     difficulty: easy
     category: delivery
+    verified: true
     gold_sql: |
       SELECT AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate FROM fct_orders
       WHERE is_delivered
@@ -186,6 +204,7 @@ items:
     question: What was the average review score in 2018?
     difficulty: easy
     category: reviews
+    verified: true
     gold_sql: |
       SELECT AVG(review_score) AS avg_review_score FROM fct_orders
       WHERE review_score IS NOT NULL
