@@ -13,18 +13,66 @@ default_window:
 
 time_grains: [day, week, month]
 
+# The signed-off decisions (DECISIONS.md) that apply across metrics, in words the SQL model
+# follows. They are sent to the model in semantic and semantic_rag mode, never raw_schema.
+# Sources, in order: valid-order definition + D12, delivery metric definitions, review metric
+# definitions, D6, D5, D4, GMV definition.
+business_rules:
+  - >-
+    Canceled and unavailable orders are not real sales. For orders, GMV, AOV, items per
+    order, customers, sellers, freight and payments, always filter `is_valid`. Only the
+    cancellation rate looks at all orders.
+  - >-
+    Delivery metrics (late rate, on-time rate, delivery days) use delivered orders only:
+    always filter `is_delivered`.
+  - >-
+    Review metrics use reviewed orders only: always filter `review_score IS NOT NULL`.
+  - >-
+    Every date filter and every time grouping uses `purchased_at`, including delivery and
+    review metrics. "Late deliveries in March" means orders placed in March that arrived late.
+  - >-
+    Always limit `purchased_at` to the default window, even when the question gives no
+    dates. When the question names a period, keep only the part inside the window: data ends
+    in August 2018, so "in 2018" means purchased_at >= '2018-01-01' AND purchased_at < '2018-09-01'.
+  - >-
+    A customer is a person: count `customer_unique_id`.
+  - >-
+    Money is in Brazilian reais (R$). GMV and prices exclude freight unless the question asks
+    about freight.
+
 views:
   fct_orders:
     grain: one row per order, every status
     description: >-
       Orders with totals, delivery outcome, latest review and the person's order number.
       Category, seller tier and payment type come from the order's highest-value item or payment.
+    columns:
+      is_valid: FALSE for canceled and unavailable orders; filter on it for sales metrics
+      is_canceled: TRUE for canceled or unavailable orders
+      is_delivered: TRUE when the order reached the customer and has a delivery date
+      is_late: TRUE when delivered after the estimated date (calendar dates); NULL if undelivered
+      purchased_at: when the order was placed; the date field for every metric
+      delivered_at: when the customer received it; do not use for date filters
+      gmv: sum of item prices in the order, excluding freight (R$)
+      items: number of item units in the order
+      delivery_days: days from purchase to delivery
+      customer_order_number: 1 for the person's first valid order, 2 for the second, ...
+      repeat_within_90d: on a first order, TRUE if the second order came within 90 days
+      has_90d_followup: TRUE if the order is 90+ days before the data cutoff
   fct_order_items:
     grain: one row per order item (one unit of one product)
     description: Item price and freight with the item's own category and seller tier.
+    columns:
+      is_valid: FALSE for items on canceled and unavailable orders
+      price: item price, excluding freight (R$)
+      freight_value: freight charged for the item (R$)
   fct_payments:
     grain: one row per payment within an order
     description: Payment type, instalments and value, with the order's dimensions.
+    columns:
+      is_valid: FALSE for payments on canceled and unavailable orders
+      payment_value: amount paid, including freight (R$)
+      installments: number of instalments (1 unless paid by credit card)
 
 dimensions:
   customer_state:

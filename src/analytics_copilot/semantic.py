@@ -24,6 +24,7 @@ class View(BaseModel):
 
     grain: str
     description: str
+    columns: dict[str, str] = {}
 
 
 class Dimension(BaseModel):
@@ -61,6 +62,7 @@ class SemanticLayer(BaseModel):
     version: int
     default_window: Window
     time_grains: list[str]
+    business_rules: list[str] = []
     views: dict[str, View]
     dimensions: dict[str, Dimension]
     metrics: dict[str, Metric]
