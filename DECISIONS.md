@@ -184,3 +184,30 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
   - the results writer falls back to text for any unusual value, so a finished run can't be lost at the save step;
   - a fresh run's cache only records (`replay=False`). In this run the scope-check reply was reused across modes, which excluded most answers from the latency statistics.
 - **Known limitation found:** in `raw_schema` the failure label is almost always "wrong join", because that mode queries `stg_*` tables and gold uses `fct_*` marts. For that mode the label doesn't show the real cause yet.
+
+## D27. New mode `semantic_plan`: the model plans, code writes the SQL
+
+- **Problem:** in the first eval, most `semantic` and `semantic_rag` failures were definition errors (a missing `is_valid`, `is_delivered` or date window; item-level instead of order-level counts; "worst" sorted the wrong way), not SQL syntax errors.
+- **Options:** better prompts; fine-tuning; bounded semantic planning with deterministic compilation (arXiv 2608.16663: 97.4% vs 55.3% for direct text-to-SQL; dbt's 2026 benchmark reports near 100% on questions the semantic layer covers).
+- **Chosen:** planning. The model returns a JSON plan (metric, group_by, filters, period or periods, grain, share_of, sort, limit), validated against the semantic layer and compiled by `compile_metric`. Required filters, the purchase date, the window clip and the table are guaranteed by code. An invalid plan gets one repair; a question no single metric fits goes to the custom-SQL route (D28).
+- **Compiler extensions:** sorted top-N; several periods side by side; share of a total (additive metrics only: a single plain SUM or COUNT(*)); quarter and year grains; any requested period clipped to the window.
+- **Also added:** `orders_placed` as the 19th governed metric (D24 as a metric instead of a prompt rule). The planner and custom-SQL prompts list every dimension's real values, so filters use 'SP', not 'São Paulo' (value grounding, as in CHESS).
+- **Kept separate:** the three baseline modes are unchanged, so the first run's numbers remain a valid baseline.
+
+## D28. Custom-SQL route: rule gate, result feedback, self-consistency
+
+- **Rule gate (before execution):** sqlglot checks the SQL for the business rules: `purchased_at` limited, no filtering on other date columns, each used metric's required filters, `is_delivered` for delivery measures, `is_valid` for sales figures (unless the question says "placed"). A violation gets one targeted repair. A rule-gated 7B agent outperformed a directly prompted 32B one (arXiv 2608.09254). A test asserts none of the 105 gold queries trips the gate.
+- **Result feedback (after execution):** an empty result, dates outside the window, an all-NULL column or a truncated result gets one fix. The fix is kept only if it has fewer problems. This was the one module found universally worth its cost in arXiv 2608.28432.
+- **Self-consistency:** 3 candidates (greedy, then two at temperature 0.7). Each runs, and the result most of them agree on wins (rows sorted, floats to 6 significant digits); ties go to the greedy one. Majority voting is used by OmniSQL and CHASE-SQL.
+- **Trade-off:** up to about 9 model calls on this route instead of about 3, so it's used only when no single metric fits.
+
+## D29. Eval honesty: the golden set is now a development set
+
+- Some of these improvements were informed by failures seen on the golden set, not only by research: the ranking-direction wording ("worst" depends on whether higher is better), and the four added example shapes (two-period comparison, share of a total, an order-level count with a threshold, an ascending ranking).
+- Guardrails kept: no golden question or answer is in any prompt, and the leakage test covers the example library, the smoke questions and the planner examples (a word-overlap score of 0.6 or more fails; two planner examples were replaced when it caught them).
+- **Consequence:** accuracy on this golden set now overstates what the agent would score on unseen questions. A clean number needs a fresh held-out set written without looking at agent output. That is recommended before any number goes on a CV.
+
+## D30. Eval runs 4 questions at a time
+
+- vLLM reports room for about 20 concurrent full-length (8,192-token) requests on the T4, and our prompts are about 3,000 tokens. The owner chose 4 in flight (about half of a comfortable maximum), with vLLM prefix caching on so the shared start of each prompt is processed once.
+- **Trade-off:** latency now includes queueing on the shared GPU and isn't comparable to the first run's sequential latency. The run metadata says so.
