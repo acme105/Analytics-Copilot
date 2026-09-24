@@ -39,6 +39,11 @@ PLAUSIBLE = {
     "low_review_share": (0.08, 0.20),
     "avg_installments": (2.5, 4.5),
     "credit_card_payment_share": (0.65, 0.90),
+    "total_freight": (1.5e6, 3e6),
+    "freight_per_order": (15, 35),
+    "payment_value": (1.2e7, 2e7),
+    "canceled_orders": (500, 2_500),
+    "median_delivery_days": (7, 15),
 }
 
 # Months present when grouped by month. The 90-day repeat rate needs 90 days of follow-up

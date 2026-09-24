@@ -332,3 +332,61 @@ metrics:
     date_field: purchased_at
     unit: ratio
     synonyms: [card share, credit card share, share paid by card, credit card usage]
+
+  # Added in D37 after the failure analysis: everyday measures the planner had no metric for.
+  total_freight:
+    label: Total freight
+    description: Total freight charged to customers on valid orders (R$). Not the carriers' cost.
+    view: fct_order_items
+    expression: SUM(freight_value)
+    grain: order item
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [freight, shipping charged, freight charged, freight paid, shipping fees, delivery fees]
+
+  freight_per_order:
+    label: Freight per order
+    description: Average freight charged per valid order with at least one item (R$).
+    view: fct_orders
+    expression: SUM(freight) / COUNT(*)
+    grain: order
+    required_filters: [is_valid, items > 0]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [average freight per order, shipping cost per order, freight per order]
+
+  payment_value:
+    label: Payment value
+    description: >-
+      Total amount customers paid on valid orders (R$), including freight and instalment
+      interest. Use for "how much was paid", by payment type.
+    view: fct_payments
+    expression: SUM(payment_value)
+    grain: payment
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [amount paid, money paid, payments, total paid, paid amount]
+
+  canceled_orders:
+    label: Canceled orders
+    description: Number of orders that were canceled or became unavailable after being placed.
+    view: fct_orders
+    expression: COUNT(*)
+    grain: order
+    required_filters: [is_canceled]
+    date_field: purchased_at
+    unit: orders
+    synonyms: [cancellations, canceled orders, cancelled orders, unavailable orders, number canceled]
+
+  median_delivery_days:
+    label: Median delivery days
+    description: Median days from purchase to delivery, for delivered orders.
+    view: fct_orders
+    expression: MEDIAN(delivery_days)
+    grain: order
+    required_filters: [is_delivered]
+    date_field: purchased_at
+    unit: days
+    synonyms: [median delivery time, typical delivery time, median days to deliver]

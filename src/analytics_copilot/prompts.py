@@ -24,7 +24,9 @@ The warehouse holds the Olist Brazilian marketplace, purchases from Sep 2016 to 
 item prices and freight (GMV), payments (type, instalments, value), review scores, delivery
 dates and delays, customers by Brazilian state and city, sellers, product categories.
 
-It does NOT contain: costs, profit or margins; marketing spend, traffic or conversion;
+It does NOT contain: costs, profit or margins, including what the company pays shipping
+carriers (freight in the data is what customers were charged); marketing spend, traffic
+or conversion;
 inventory or stock; returns or refunds; customer names, emails, phones or other personal
 data; any data after Oct 2018, so no forecasts or predictions.
 
