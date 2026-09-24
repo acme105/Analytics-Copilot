@@ -120,19 +120,18 @@ metrics:
     synonyms: [first-time customers, first-time buyers, acquired customers, new buyers]
 
   repeat_purchase_rate:
-    label: Repeat purchase rate
+    label: 90-day repeat purchase rate
     description: >-
-      Share of active customers in the period who are returning: at least one of their orders
-      in the period is their second or later valid order.
+      Of customers whose first valid order falls in the period, the share who placed a second
+      valid order within 90 days of the first. Customers whose first order is less than 90 days
+      before the data cutoff (3 Sep 2018) are excluded, since their window is incomplete.
     view: fct_orders
-    expression: >-
-      COUNT(DISTINCT customer_unique_id) FILTER (WHERE customer_order_number > 1)
-      / COUNT(DISTINCT customer_unique_id)
-    grain: order
-    required_filters: [is_valid]
+    expression: AVG(CASE WHEN repeat_within_90d THEN 1 ELSE 0 END)
+    grain: order (first orders only)
+    required_filters: [is_valid, customer_order_number = 1, has_90d_followup]
     date_field: purchased_at
     unit: ratio
-    synonyms: [repeat rate, returning customer rate, retention, repurchase rate, loyalty]
+    synonyms: [repeat rate, 90-day repeat rate, returning customer rate, retention, repurchase rate, loyalty]
 
   active_sellers:
     label: Active sellers
@@ -207,8 +206,7 @@ metrics:
   cancellation_rate:
     label: Cancellation rate
     description: >-
-      Share of all orders with status 'canceled'. 'unavailable' orders are not counted as
-      canceled.
+      Share of all orders that were canceled or became unavailable after being placed.
     view: fct_orders
     expression: AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END)
     grain: order

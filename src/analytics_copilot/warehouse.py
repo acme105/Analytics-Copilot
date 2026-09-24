@@ -181,14 +181,20 @@ WITH items AS (
     GROUP BY 1
 ),
 customer_sequence AS (
-    -- Nth valid order for this person over the full history (so 2017 "new" is truly new).
+    -- Nth valid order for this person over the full history (so 2017 "new" is truly new),
+    -- and when they placed their next valid order.
     SELECT o.order_id,
-           ROW_NUMBER() OVER (
-               PARTITION BY c.customer_unique_id ORDER BY o.purchased_at, o.order_id
-           ) AS customer_order_number
+           o.purchased_at,
+           ROW_NUMBER() OVER w AS customer_order_number,
+           LEAD(o.purchased_at) OVER w AS next_order_at
     FROM stg_orders o
     JOIN stg_customers c USING (customer_id)
     WHERE o.is_valid
+    WINDOW w AS (PARTITION BY c.customer_unique_id ORDER BY o.purchased_at, o.order_id)
+),
+data_cutoff AS (
+    -- The last valid purchase in the data: nothing after it can be observed.
+    SELECT MAX(purchased_at) AS last_purchase_at FROM stg_orders WHERE is_valid
 )
 SELECT
     o.order_id,
@@ -196,7 +202,9 @@ SELECT
     c.customer_state,
     o.order_status,
     o.is_valid,
-    o.order_status = 'canceled' AS is_canceled,
+    -- Rule: 'unavailable' means the order was placed and then could not be fulfilled,
+    -- so it counts as a cancellation alongside 'canceled'.
+    o.order_status IN ('canceled', 'unavailable') AS is_canceled,
     o.purchased_at,
     o.delivered_at,
     o.estimated_delivery_at,
@@ -214,8 +222,15 @@ SELECT
     CASE WHEN o.delivered_at IS NOT NULL
          THEN CAST(o.delivered_at AS DATE) > CAST(o.estimated_delivery_at AS DATE) END AS is_late,
     r.review_score,
-    cs.customer_order_number
+    cs.customer_order_number,
+    -- 90-day repeat: this order's next valid order came within 90 days. The metric reads it
+    -- on first orders only, so it means "second order within 90 days of the first".
+    COALESCE(cs.next_order_at <= cs.purchased_at + INTERVAL 90 DAY, FALSE) AS repeat_within_90d,
+    -- Rule: only orders placed 90+ days before the data cutoff have a full 90-day window to
+    -- repeat in; later ones would bias the repeat rate down.
+    o.purchased_at + INTERVAL 90 DAY <= dc.last_purchase_at AS has_90d_followup
 FROM stg_orders o
+CROSS JOIN data_cutoff dc
 JOIN stg_customers c USING (customer_id)
 LEFT JOIN items it USING (order_id)
 LEFT JOIN order_primary_item pi USING (order_id)
