@@ -162,3 +162,15 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 - **Defensive parsing fix found by the smoke re-run:** after D21, the model wrote `assumptions.notes` as a string, and strict validation turned 5 of the 18 answers into errors. The schema now accepts a single string as a one-item list.
 - **Notebook:** `kaggle/eval/run_eval.ipynb`, a private kernel with one step per cell (settings, install, warehouse, model server, gold, run, headline, categories, failure gallery, save).
 - **Trade-off:** answers run sequentially, so latency is clean per question but the run is slower than batched serving.
+
+## D24. "Orders placed" counts every order, whatever its status (decided 2026-09-24, gold review batch 1)
+
+- **Rule:** a question that counts orders that were *placed* counts all orders, including canceled and unavailable ones. "Orders" alone still means valid orders (D5, D12). When "placed in 2018" only names the period of another metric (for example a delivery rate), that metric keeps its own filters.
+- **Effect on the golden set:** 8 gold answers changed (e001, e027, e032, m002, m005, m021, m028, h011). For example, e001 is now 45,101, up from 44,379. h016 ("placed a second order") is left for review because it interacts with the new-customer definition.
+- **Effect on the agent:** a matching business rule was added to the semantic layer. It changes every semantic prompt, so it applies from the next eval run. The run in progress used the earlier prompts and is scored against the earlier gold.
+- **Why this is not tuning on the test set:** the definition came from the owner's review of what the question means, not from model output. The gold changed to match the wording, not to match a prediction.
+
+## D25. Customer identity confirmed: `customer_unique_id` is the only person-level key
+
+- **Checked because:** 2018 looked like "almost everyone is new" (51,668 of 52,337 buyers).
+- **Evidence:** `customer_id` is unique per order (99,441 ids, never more than 1 order each). Zip prefix, city and state are shared locations: 11,898 zip + city pairs hold more than one person. `customer_unique_id` has 96,096 values, and 93,099 of those people (96.9%) ordered exactly once. So the "all new" pattern is a real property of the data, not a wrong key.
