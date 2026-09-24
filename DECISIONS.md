@@ -290,3 +290,13 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
   - sampling variance on custom SQL: m025, m015, e027 were right in the last run with similar plans;
   - h007 came back pivoted (late and on-time as columns). That's correct content in a different shape, which the scorer doesn't accept.
 - **Lesson:** a prompt change can fix one class and break another. Only deterministic checks and normalisations are reliable, and custom SQL's sampled candidates make single runs noisy by several questions.
+
+## D41. A held-out set, written before the next round of fixes
+
+- **Why:** the golden set is a development set (D29). Its failures shaped the prompts, metrics and checks, so its accuracy overstates generalisation.
+- **What:** `evals/holdout.yaml`, 40 new questions (12 easy, 12 medium, 10 hard, 6 should-refuse), written without looking at any agent output and committed **before** the fixes of D42 onward, as the git history shows. The hard questions cover the known failure *patterns* (group splits, period-over-period change, per-group thresholds, cohorts, order-level conditions) with new content.
+- **Rules:**
+  - no prompt, example, rule or metric may be changed because of a held-out failure;
+  - results are reported separately from the dev set;
+  - items start unverified until the owner reviews them;
+  - a test keeps every held-out question below 0.6 word overlap with the example library, smoke questions, planner examples and dev set.

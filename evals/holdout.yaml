@@ -1,0 +1,410 @@
+# Held-out eval set (D41): written on 2026-09-24 BEFORE the fixes of D42-D45, without looking at
+# any agent output. It measures generalisation: no prompt, example or rule may be changed
+# because of a failure seen here. Same rules and format as golden.yaml; everything starts
+# unverified until reviewed by the owner.
+
+items:
+  # ---------------------------------------------------------------- easy (12)
+  - id: x_e01
+    question: How much did customers spend on products in March 2017, excluding shipping?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-03-01' AND purchased_at < DATE '2017-04-01'
+
+  - id: x_e02
+    question: What was the cancellation count for the second quarter of 2018?
+    difficulty: easy
+    category: cancellations
+    gold_sql: |
+      SELECT COUNT(*) AS canceled_orders FROM fct_orders
+      WHERE is_canceled AND purchased_at >= DATE '2018-04-01' AND purchased_at < DATE '2018-07-01'
+
+  - id: x_e03
+    question: On average, how many items did Paraná (PR) customers put in each order?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT AVG(items) AS items_per_order FROM fct_orders
+      WHERE is_valid AND items > 0 AND customer_state = 'PR'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: x_e04
+    question: How many distinct sellers sold something in the last quarter of 2017?
+    difficulty: easy
+    category: sellers
+    gold_sql: |
+      SELECT COUNT(DISTINCT seller_id) AS active_sellers FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-10-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: x_e05
+    question: What was the on-time delivery rate for Rio Grande do Sul customers?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate FROM fct_orders
+      WHERE is_delivered AND customer_state = 'RS'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: x_e06
+    question: What average review score did orders in the health_beauty category get in 2018?
+    difficulty: easy
+    category: reviews
+    notes: Order-level category is the order's highest-value item (D8).
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL AND product_category = 'health_beauty'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: x_e07
+    question: What was the total value of payments made with vouchers in 2017?
+    difficulty: easy
+    category: payments
+    gold_sql: |
+      SELECT SUM(payment_value) AS payment_value FROM fct_payments
+      WHERE is_valid AND payment_type = 'voucher'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: x_e08
+    question: In May 2018, how many people bought from us for the very first time?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT customer_unique_id) AS new_customers FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2018-05-01' AND purchased_at < DATE '2018-06-01'
+
+  - id: x_e09
+    question: What was the median delivery time over the whole analysis window?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT MEDIAN(delivery_days) AS median_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: x_e10
+    question: What is the average freight per order for Santa Catarina (SC)?
+    difficulty: easy
+    category: freight
+    gold_sql: |
+      SELECT SUM(freight) / COUNT(*) AS freight_per_order FROM fct_orders
+      WHERE is_valid AND items > 0 AND customer_state = 'SC'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: x_e11
+    question: How many orders were placed in the week of 4 to 10 December 2017?
+    difficulty: easy
+    category: orders
+    notes: '"Placed" counts every order whatever its status (D24).'
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE purchased_at >= DATE '2017-12-04' AND purchased_at < DATE '2017-12-11'
+
+  - id: x_e12
+    question: What percentage of all 2017 orders were paid mainly by debit card?
+    difficulty: easy
+    category: payments
+    notes: Valid orders; an order's payment type is its highest-value payment (D8).
+    gold_sql: |
+      SELECT AVG(CASE WHEN payment_type = 'debit_card' THEN 1 ELSE 0 END) AS debit_card_share
+      FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  # ---------------------------------------------------------------- medium (12)
+  - id: x_m01
+    question: Show the number of canceled orders in each month of 2018.
+    difficulty: medium
+    category: cancellations
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, COUNT(*) AS canceled_orders
+      FROM fct_orders
+      WHERE is_canceled AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: x_m02
+    question: Rank the payment types by average freight per order in 2017, highest first.
+    difficulty: medium
+    category: freight
+    ordered: true
+    gold_sql: |
+      SELECT payment_type, SUM(freight) / COUNT(*) AS freight_per_order FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY freight_per_order DESC
+
+  - id: x_m03
+    question: Which seller tier had the lowest on-time delivery rate in 2018?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT seller_tier FROM fct_orders
+      WHERE is_delivered AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY AVG(CASE WHEN is_late THEN 0 ELSE 1 END) ASC LIMIT 1
+
+  - id: x_m04
+    question: Show weekly GMV for February 2018.
+    difficulty: medium
+    category: gmv
+    notes: Weeks start on Monday; the first week holds only 1-4 February.
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('week', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-02-01' AND purchased_at < DATE '2018-03-01'
+      GROUP BY 1
+
+  - id: x_m05
+    question: Compare the average order value of customers in São Paulo, Minas Gerais and Paraná in 2018.
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT customer_state, SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0 AND customer_state IN ('SP', 'MG', 'PR')
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: x_m06
+    question: Which 4 product categories brought in the most freight in 2017?
+    difficulty: medium
+    category: freight
+    ordered: true
+    gold_sql: |
+      SELECT product_category, SUM(freight_value) AS total_freight FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY total_freight DESC LIMIT 4
+
+  - id: x_m07
+    question: How many valid orders did each seller tier receive in the first quarter of 2018?
+    difficulty: medium
+    category: sellers
+    gold_sql: |
+      SELECT seller_tier, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-04-01'
+      GROUP BY 1
+
+  - id: x_m08
+    question: Show the median delivery days for each quarter of 2017.
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period,
+             MEDIAN(delivery_days) AS median_delivery_days
+      FROM fct_orders
+      WHERE is_delivered AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: x_m09
+    question: What were total payments for each payment type in the first half of 2018?
+    difficulty: medium
+    category: payments
+    gold_sql: |
+      SELECT payment_type, SUM(payment_value) AS payment_value FROM fct_payments
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-07-01'
+      GROUP BY 1
+
+  - id: x_m10
+    question: In which quarter of 2017 was the average review score lowest?
+    difficulty: medium
+    category: reviews
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY AVG(review_score) ASC LIMIT 1
+
+  - id: x_m11
+    question: List the 5 states with the most canceled orders in 2017.
+    difficulty: medium
+    category: cancellations
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, COUNT(*) AS canceled_orders FROM fct_orders
+      WHERE is_canceled AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY canceled_orders DESC LIMIT 5
+
+  - id: x_m12
+    question: Show daily orders placed from 25 to 30 November 2017.
+    difficulty: medium
+    category: orders
+    notes: '"Placed" counts every order whatever its status (D24).'
+    gold_sql: |
+      SELECT CAST(purchased_at AS DATE) AS day, COUNT(*) AS orders FROM fct_orders
+      WHERE purchased_at >= DATE '2017-11-25' AND purchased_at < DATE '2017-12-01'
+      GROUP BY 1
+
+  # ---------------------------------------------------------------- hard (10)
+  - id: x_h01
+    question: For delivered orders, how does freight per order differ between late and on-time deliveries?
+    difficulty: hard
+    category: freight
+    notes: Gold keeps only the numeric column; the late/on-time label wording varies.
+    gold_sql: |
+      SELECT SUM(freight) / COUNT(*) AS freight_per_order FROM fct_orders
+      WHERE is_valid AND items > 0 AND is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY is_late
+
+  - id: x_h02
+    question: Do repeat orders contain more items than first orders? Give the average items per order for each group.
+    difficulty: hard
+    category: customers
+    notes: First = the person's first valid order; repeat = orders 2 and later, pooled.
+    gold_sql: |
+      SELECT AVG(items) AS items_per_order FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY customer_order_number = 1
+
+  - id: x_h03
+    question: For each month from April to August 2018, what was the percentage change in valid orders compared with the previous month?
+    difficulty: hard
+    category: orders
+    gold_sql: |
+      WITH monthly AS (
+          SELECT DATE_TRUNC('month', purchased_at) AS period, COUNT(*) AS orders
+          FROM fct_orders
+          WHERE is_valid
+            AND purchased_at >= DATE '2018-03-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1
+      ),
+      changes AS (
+          SELECT period, orders / LAG(orders) OVER (ORDER BY period) - 1 AS pct_change
+          FROM monthly
+      )
+      SELECT CAST(period AS DATE) AS period, pct_change FROM changes
+      WHERE period >= DATE '2018-04-01'
+
+  - id: x_h04
+    question: Which product category had the largest absolute fall in GMV between the second half of 2017 and the first half of 2018?
+    difficulty: hard
+    category: gmv
+    gold_sql: |
+      SELECT product_category FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-07-01' AND purchased_at < DATE '2018-07-01'
+      GROUP BY 1
+      ORDER BY SUM(price) FILTER (WHERE purchased_at >= DATE '2018-01-01')
+               - SUM(price) FILTER (WHERE purchased_at < DATE '2018-01-01') ASC
+      LIMIT 1
+
+  - id: x_h05
+    question: Among states with at least 1,000 delivered orders, which 3 have the highest late delivery rate?
+    difficulty: hard
+    category: delivery
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 HAVING COUNT(*) >= 1000
+      ORDER BY late_delivery_rate DESC LIMIT 3
+
+  - id: x_h06
+    question: Among product categories with at least 300 valid orders in both 2017 and 2018, which one increased its average order value the most?
+    difficulty: hard
+    category: gmv
+    notes: Order-level category is the order's highest-value item (D8); 2018 means Jan-Aug.
+    gold_sql: |
+      WITH by_year AS (
+          SELECT product_category, YEAR(purchased_at) AS yr, COUNT(*) AS n, SUM(gmv) / COUNT(*) AS aov
+          FROM fct_orders
+          WHERE is_valid AND items > 0
+            AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1, 2
+      )
+      SELECT a.product_category
+      FROM by_year a JOIN by_year b ON a.product_category = b.product_category
+      WHERE a.yr = 2017 AND b.yr = 2018 AND a.n >= 300 AND b.n >= 300
+      ORDER BY b.aov - a.aov DESC LIMIT 1
+
+  - id: x_h07
+    question: For first-time customers acquired in 2017 who ordered again, how many days on average passed before their next order?
+    difficulty: hard
+    category: customers
+    notes: First orders in 2017; the next valid order may fall at any time after.
+    gold_sql: |
+      SELECT AVG(DATE_DIFF('second', f.purchased_at, s.purchased_at) / 86400.0) AS avg_days
+      FROM fct_orders f
+      JOIN fct_orders s
+        ON s.customer_unique_id = f.customer_unique_id AND s.customer_order_number = 2
+      WHERE f.is_valid AND f.customer_order_number = 1 AND s.is_valid
+        AND f.purchased_at >= DATE '2017-01-01' AND f.purchased_at < DATE '2018-01-01'
+
+  - id: x_h08
+    question: How many customers whose first order was in the second half of 2017 came back for another order before September 2018?
+    difficulty: hard
+    category: customers
+    notes: Second valid order before 2018-09-01.
+    gold_sql: |
+      SELECT COUNT(DISTINCT f.customer_unique_id) AS returning_customers
+      FROM fct_orders f
+      JOIN fct_orders s
+        ON s.customer_unique_id = f.customer_unique_id AND s.customer_order_number = 2
+      WHERE f.is_valid AND f.customer_order_number = 1
+        AND f.purchased_at >= DATE '2017-07-01' AND f.purchased_at < DATE '2018-01-01'
+        AND s.is_valid AND s.purchased_at < DATE '2018-09-01'
+
+  - id: x_h09
+    question: In 2017, what share of valid orders contained more than one item?
+    difficulty: hard
+    category: orders
+    gold_sql: |
+      SELECT AVG(CASE WHEN items > 1 THEN 1 ELSE 0 END) AS multi_item_share FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: x_h10
+    question: For each year, what share of delivered orders arrived late, separately for first orders and repeat orders?
+    difficulty: hard
+    category: delivery
+    notes: Gold keeps year and the rate; the first/repeat label wording varies. Delivered orders are valid.
+    gold_sql: |
+      SELECT YEAR(purchased_at) AS yr, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_rate
+      FROM fct_orders
+      WHERE is_delivered AND is_valid
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1, customer_order_number = 1
+
+  # ---------------------------------------------------------------- should refuse (6)
+  - id: x_r01
+    question: What lifetime value should we forecast for the customers we acquired in 2018?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Forecast beyond the data.
+
+  - id: x_r02
+    question: Which sellers made the highest profit in 2017?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No cost data.
+
+  - id: x_r03
+    question: Give me the home addresses of customers in Curitiba.
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Personal data.
+
+  - id: x_r04
+    question: How many visitors did the product pages get in August 2018?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No traffic data.
+
+  - id: x_r05
+    question: What discount rates did sellers offer during Black Friday 2017?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No discount or list-price data.
+
+  - id: x_r06
+    question: What were our warehouse storage costs in 2018?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No cost data.

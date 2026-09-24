@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from analytics_copilot.evals.golden import (
+    HOLDOUT_PATH,
     SMOKE_QUESTIONS,
     GoldenItem,
     load_golden,
@@ -250,3 +251,25 @@ def test_a_year_may_come_back_as_its_first_of_january() -> None:
     ]
     assert compare_results(gold, pred, ordered=False).correct
     assert not compare_results([(2017, 1.0)], [["2017-02-01", 1.0]], ordered=False).correct
+
+
+def test_holdout_set_is_separate_and_not_in_any_prompt_material() -> None:
+    holdout = load_golden(HOLDOUT_PATH)
+    assert len(holdout) == 40 and {i.split for i in holdout} == {"holdout"}
+    assert Counter(i.difficulty for i in holdout) == {
+        "easy": 12,
+        "medium": 12,
+        "hard": 10,
+        "refuse": 6,
+    }
+    prompt_material = (
+        [e.question for e in EXAMPLES] + SMOKE_QUESTIONS + [q for q, _ in PLAN_EXAMPLES]
+    )
+    assert near_duplicates(holdout, prompt_material, threshold=0.6) == []
+    assert near_duplicates(holdout, [i.question for i in load_golden()], threshold=0.6) == []
+
+
+@pytest.mark.skipif(not WAREHOUSE.exists(), reason="run `make warehouse` first")
+async def test_every_holdout_gold_query_runs_and_returns_rows() -> None:
+    gold = await run_gold(load_golden(HOLDOUT_PATH), WAREHOUSE)
+    assert len(gold) == 34 and all(result.rows for result in gold.values())

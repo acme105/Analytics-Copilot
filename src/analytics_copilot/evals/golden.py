@@ -11,6 +11,7 @@ from pydantic import BaseModel, model_validator
 from analytics_copilot.retrieval import tokens
 
 DEFAULT_GOLDEN_PATH = Path(__file__).resolve().parents[3] / "evals" / "golden.yaml"
+HOLDOUT_PATH = DEFAULT_GOLDEN_PATH.with_name("holdout.yaml")
 
 # Questions used to tune prompts (smoke test, D22). Golden items must not resemble them.
 SMOKE_QUESTIONS = [
@@ -36,6 +37,7 @@ class GoldenItem(BaseModel):
     ambiguous: bool = False
     notes: str = ""
     verified: bool = False
+    split: Literal["dev", "holdout"] = "dev"
 
     @model_validator(mode="after")
     def _gold_sql_matches_behaviour(self) -> GoldenItem:
@@ -47,13 +49,21 @@ class GoldenItem(BaseModel):
 
 
 def load_golden(path: Path = DEFAULT_GOLDEN_PATH) -> list[GoldenItem]:
-    """Load and validate the golden set. Ids must be unique."""
-    items = [GoldenItem(**raw) for raw in yaml.safe_load(path.read_text())["items"]]
+    """Load and validate an eval set. Ids must be unique. Items from holdout.yaml are
+    marked split='holdout' (D41): never tuned on, reported separately."""
+    split = "holdout" if path.name == HOLDOUT_PATH.name else "dev"
+    raw_items = yaml.safe_load(path.read_text())["items"]
+    items = [GoldenItem(**raw, split=split) for raw in raw_items]
     ids = [item.id for item in items]
     duplicates = {i for i in ids if ids.count(i) > 1}
     if duplicates:
         raise ValueError(f"Duplicate golden ids: {sorted(duplicates)}")
     return items
+
+
+def load_all() -> list[GoldenItem]:
+    """The development set followed by the held-out set."""
+    return load_golden() + load_golden(HOLDOUT_PATH)
 
 
 def near_duplicates(
