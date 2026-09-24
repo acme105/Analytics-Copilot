@@ -1,0 +1,24 @@
+# Secrets
+.env
+
+# Raw data and built warehouses (rebuild with `make data` and `make warehouse`)
+data/raw/
+warehouse/*.duckdb
+warehouse/*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Eval response cache (results files themselves are committed)
+results/.cache/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# Private build spec for the coding agent
+Prompt_for_model_creation.md
