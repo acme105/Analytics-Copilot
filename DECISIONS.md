@@ -222,3 +222,24 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 - **What happened:** the first `semantic_plan` run started vLLM with `--enable-prefix-caching`. The server loaded, but the first requests made vLLM compile its Triton `prefix_prefill` kernel, which fails on the T4's Turing architecture ("PassManager::run failed"). The engine died and all 120 answers failed with a connection error in 0.7 minutes. The run measured nothing, so its results file was discarded.
 - **Fix:** prefix caching removed. The start-up cell now sends one real completion as a warm-up and stops the notebook if it fails, so a broken server can't produce a page of errors that look like results.
 - **Lesson:** a flag that loads without error isn't proven until a real request succeeds. The same was true of the `aimv2` crash (D3).
+
+## D33. Gold decisions on the hard set (2026-09-24)
+
+- **h006:** `unknown` (products with no category) counts as a category. The ambiguity tag is removed and the gold stands.
+- **h016:** counts a second *valid* order only, which is what the gold computes. The question was reworded from "placed a second order" to "ordered again", so it doesn't trigger the placed-orders rule (D24).
+
+## D34. Row blow-ups are caught from the SQL; grain is a business rule; "wrong join" relabelled
+
+- **h003 finding:** the agent joined `fct_orders` to itself row by row on `customer_state`, about 800 million row pairs for São Paulo alone. It timed out, and it was also logically wrong (wrong year range, reversed sign).
+- **Rejected:** a cost check using DuckDB's `EXPLAIN`. DuckDB estimated about 1.3M rows for that query, so it would have let it through; a check that looks protective but isn't is worse than none.
+- **Chosen:**
+  - the rule gate flags joins between two row-level fact tables on dimension columns only, and tells the model to aggregate each side first. Joining an aggregated CTE to a fact table is allowed, and no gold query trips the check;
+  - timeouts now come back with that same advice instead of "timed out";
+  - a new business rule says which table matches which grain (per order, per item, payments).
+- **Evidence for the grain rule:** joins were rare in the first run (2–4 of about 100 answers per mode). Every "wrong join" failure was actually a wrong *table* choice, mostly items instead of orders. So the label is now `wrong_table_or_join`, and join examples weren't added.
+
+## D35. First valid semantic_plan run (code e83df33, before D34)
+
+- 120 answers in 9.0 minutes at concurrency 4 (the sequential baseline run took 56.6).
+- Verified items (40): **85.0%** (34/40) vs semantic_rag 75.0%. All 105 answerable, provisional: **71.4%** vs 60.0%. Medium rose from 29/45 to 39/45; easy dipped (verified 15/20 vs 17/20); hard went from 5/20 to 6/20. Refusals 14/15, no false refusals, no errors.
+- p95 latency is 63.5s: the custom-SQL route (up to about 9 calls) queued behind other questions. The golden set is a development set (D29).
