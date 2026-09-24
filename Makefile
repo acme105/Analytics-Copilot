@@ -1,7 +1,11 @@
 DATASET := olistbr/brazilian-ecommerce
+KAGGLE_USER := acme105
+CODE_DATASET := $(KAGGLE_USER)/olist-copilot-code
+SMOKE_KERNEL := $(KAGGLE_USER)/olist-copilot-smoke
+BUILD := build/kaggle-code
 RAW_DIR := data/raw
 
-.PHONY: install data profile warehouse serve lint test
+.PHONY: install data profile warehouse serve lint test kaggle-code kaggle-smoke kaggle-status kaggle-results
 
 install:
 	uv sync
@@ -38,3 +42,30 @@ lint:
 
 test:
 	uv run pytest
+
+## Upload the committed code (HEAD) to the private Kaggle dataset the notebooks attach.
+kaggle-code:
+	@git diff --quiet HEAD -- src semantic || echo "WARNING: uncommitted changes are NOT uploaded (git archive HEAD)"
+	rm -rf $(BUILD) && mkdir -p $(BUILD)/stage
+	git archive HEAD src semantic pyproject.toml | tar -x -C $(BUILD)/stage
+	git rev-parse --short HEAD > $(BUILD)/stage/VERSION
+	tar -czf $(BUILD)/copilot_code.tar.gz -C $(BUILD)/stage .
+	rm -rf $(BUILD)/stage
+	printf '{"title": "olist-copilot-code", "id": "$(CODE_DATASET)", "licenses": [{"name": "copyright-authors"}]}' > $(BUILD)/dataset-metadata.json
+	if uv run kaggle datasets status $(CODE_DATASET) >/dev/null 2>&1; then \
+	    uv run kaggle datasets version -p $(BUILD) -m "code $$(git rev-parse --short HEAD)"; \
+	else \
+	    uv run kaggle datasets create -p $(BUILD); \
+	fi
+
+## Run the smoke test on a Kaggle T4, then poll with `make kaggle-status`.
+kaggle-smoke:
+	uv run kaggle kernels push -p kaggle/smoke --accelerator NvidiaTeslaT4
+
+kaggle-status:
+	uv run kaggle kernels status $(SMOKE_KERNEL)
+
+## Download the smoke run's outputs into results/kaggle/.
+kaggle-results:
+	mkdir -p results/kaggle
+	uv run kaggle kernels output $(SMOKE_KERNEL) -p results/kaggle

@@ -6,6 +6,9 @@ data/raw/
 warehouse/*.duckdb
 warehouse/*.duckdb.wal
 
+# Build output (Kaggle code upload)
+build/
+
 # Python
 __pycache__/
 *.py[cod]

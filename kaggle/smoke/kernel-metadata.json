@@ -1,0 +1,19 @@
+{
+  "id": "acme105/olist-copilot-smoke",
+  "title": "olist-copilot-smoke",
+  "code_file": "smoke_test.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "olistbr/brazilian-ecommerce",
+    "acme105/olist-copilot-code"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
