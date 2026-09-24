@@ -151,3 +151,14 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
   - Tests assert that every business rule reaches the semantic prompts and none reaches `raw_schema`, and that every column note names a real column.
   - The fixes came from the 6 smoke questions, so those questions (and near-copies) are excluded from the golden set. Otherwise the eval would reward prompt tuning on the same questions.
 - **Trade-off:** the semantic prompt grows by about 500 tokens (to about 2,600 in `semantic` and 1,800 in `semantic_rag`).
+
+## D23. Eval harness design and the first (provisional) run
+
+- **Golden set:** 120 items in `evals/golden.yaml`: 40 easy, 45 medium, 20 hard, 15 should-refuse. The gold SQL is written against the marts and follows the signed-off definitions. All items start `verified: false`; headline numbers switch to verified-only once any item is verified.
+- **Leakage guard:** a test fails if any golden question scores 0.6 or more in word overlap with an example query or a smoke (tuning) question. The check flagged one real near-copy, which was replaced (h005). Four others shared only phrasing and were reworded.
+- **Scoring:** D20 rules, implemented in `evals/scoring.py`. Columns are matched by content, trying each assignment of predicted columns to gold columns. Gold keeps only numeric columns where a label's wording can't be predicted ("late" vs "on time").
+- **Failure labels:** automatic first pass from comparing the predicted and gold SQL with sqlglot, in this order: hallucinated column, then different tables (wrong join), then different aggregate or a missing definition flag such as `is_valid` (wrong metric definition), then different DATE_TRUNC grain, then different WHERE columns or date bounds (wrong filter). Every label is recorded as `auto`, so a reviewer can override it.
+- **Cache:** replies are keyed by a hash of the model, role and full prompt. Latency is only computed over answers with no cached calls.
+- **Defensive parsing fix found by the smoke re-run:** after D21, the model wrote `assumptions.notes` as a string, and strict validation turned 5 of the 18 answers into errors. The schema now accepts a single string as a one-item list.
+- **Notebook:** `kaggle/eval/run_eval.ipynb`, a private kernel with one step per cell (settings, install, warehouse, model server, gold, run, headline, categories, failure gallery, save).
+- **Trade-off:** answers run sequentially, so latency is clean per question but the run is slower than batched serving.
