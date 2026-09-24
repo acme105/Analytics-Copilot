@@ -128,6 +128,7 @@ def to_markdown(run: dict[str, Any], summary: dict[str, Any]) -> str:
         f"- Code version: {run['code_version']}; items: {summary['items']} "
         f"({summary['verified_items']} verified)",
     ]
+    lines += [f"- {note}" for note in run.get("notes", [])]
     if scope == "all_items":
         lines.append(
             "- **Provisional:** no gold items are verified yet, so every number below is "

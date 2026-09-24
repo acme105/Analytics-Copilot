@@ -30,13 +30,18 @@ MAX_ROWS_KEPT = 20  # rows stored per record, enough to inspect a failure
 
 class CachingLLM:
     """Wraps an LLM client and stores every reply in a JSONL file, keyed by a hash of
-    the model tag, role and full prompt. Re-running with the same prompts costs no GPU
-    time; any prompt change produces a new key, so the cache can't hide it."""
+    the model tag, role and full prompt. Any prompt change produces a new key, so the
+    cache can't hide it.
 
-    def __init__(self, inner: LLMClient, path: Path, model_tag: str) -> None:
+    ``replay=False`` (a fresh run) only records: every call reaches the model, so latency
+    is real for every answer. ``replay=True`` answers from the file first, for re-scoring
+    a run without the GPU."""
+
+    def __init__(self, inner: LLMClient, path: Path, model_tag: str, replay: bool = True) -> None:
         self.inner = inner
         self.path = path
         self.model_tag = model_tag
+        self.replay = replay
         self.hits = 0
         self._store: dict[str, dict] = {}
         if path.exists():
@@ -52,7 +57,7 @@ class CachingLLM:
     async def complete(self, role: Role, messages: list[Message]) -> Completion:
         """Return the cached reply if present, otherwise call the model and store it."""
         key = self._key(role, messages)
-        if key in self._store:
+        if self.replay and key in self._store:
             self.hits += 1
             e = self._store[key]
             return Completion(e["text"], e["prompt_tokens"], e["completion_tokens"])
@@ -168,7 +173,9 @@ def write_results(
     stem = f"eval_{run['model'].split('/')[-1]}_{run['timestamp_utc']}"
     json_path = out_dir / f"{stem}.json"
     md_path = out_dir / f"{stem}.md"
-    json_path.write_text(json.dumps({"run": run, "summary": summary, "records": records}, indent=2))
+    payload = {"run": run, "summary": summary, "records": records}
+    # default=str: never lose a finished run to one unusual value in a model's result.
+    json_path.write_text(json.dumps(payload, indent=2, default=str))
     md_path.write_text(to_markdown(run, summary))
     return json_path, md_path, summary
 

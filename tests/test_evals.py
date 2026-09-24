@@ -209,3 +209,13 @@ def test_report_shows_verified_numbers_when_any_item_is_verified() -> None:
     run = {"model": "m", "timestamp_utc": "t", "provider": "p", "quantisation": "q",
            "hardware": "h", "code_version": "c"}  # fmt: skip
     assert "Provisional" not in to_markdown(run, summary)
+
+
+async def test_fresh_runs_record_without_replaying(tmp_path: Path) -> None:
+    path = tmp_path / "cache.jsonl"
+    first = CachingLLM(FakeLLM(["a"]), path, "m", replay=False)
+    await first.complete("sql", [{"role": "user", "content": "q"}])
+    second = CachingLLM(FakeLLM(["b"]), path, "m", replay=False)
+    assert (await second.complete("sql", [{"role": "user", "content": "q"}])).text == "b"
+    replaying = CachingLLM(FakeLLM([]), path, "m", replay=True)  # latest recording wins
+    assert (await replaying.complete("sql", [{"role": "user", "content": "q"}])).text == "b"
