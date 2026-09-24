@@ -76,6 +76,9 @@ class MetricPlan(BaseModel):
     periods: list[Period] = []
     grain: str | None = None
     share_of: dict[str, list[str]] | None = None
+    change: Literal["absolute", "percent"] | None = None
+    compare: Literal["difference", "percent"] | None = None
+    min_group_size: int | None = None
     sort: Literal["asc", "desc"] | None = None
     limit: int | None = None
     notes: list[str] = []
@@ -116,6 +119,9 @@ def plan_to_sql(layer: SemanticLayer, plan: MetricPlan) -> str:
             filters=plan.filters,
             periods=[p.to_range() for p in plan.periods],
             share_of=next(iter(plan.share_of.items())) if plan.share_of else None,
+            change=plan.change,
+            compare=plan.compare,
+            min_group_size=plan.min_group_size,
             sort=plan.sort,
             limit=plan.limit,
         )
@@ -138,14 +144,36 @@ DIMENSION_WORDS = {
     "product_category": ("categor", "product type", "department"),
     "payment_type": ("payment", "paid", "pay ", "boleto", "voucher", "credit card", "debit"),
     "seller_tier": ("tier", "seller size", "seller segment", "seller band"),
+    "delivery_status": ("late", "on-time", "on time", "delivery status"),
+    "customer_type": ("first order", "repeat", "first-time", "returning", "first and"),
 }
+TIME_UNITS = {"day", "date", "week", "month", "quarter", "year", "period"}
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august",
+          "september", "october", "november", "december")  # fmt: skip
 _PERIOD_WORDS = re.compile(
     r"\b(20\d\d|january|february|march|april|may|june|july|august|september|october|"
     r"november|december|q[1-4]|quarter|half|black friday)\b",
     re.IGNORECASE,
 )
 _CHANGE_WORDS = re.compile(
-    r"\b(grew|grow|growth|increased?|decreased?|drop|change|improved?)\b", re.IGNORECASE
+    r"\b(grew|grow|growth|increased?|decreased?|drop|fall|fell|rose|change|improved?)\b",
+    re.IGNORECASE,
+)
+_PREVIOUS_WORDS = re.compile(
+    r"(over-(day|week|month|quarter|year)|previous (day|week|month|quarter|year)|"
+    r"(day|week|month|quarter|year) before|compared with the (day|week|month|quarter|year))",
+    re.IGNORECASE,
+)
+_TREND_WORDS = re.compile(
+    r"\b((each|every|per|by) (day|week|month|quarter|year)|daily|weekly|monthly|quarterly|"
+    r"yearly|annual|trend|over time|(day|week|month|quarter|year) by|"
+    r"which (day|week|month|quarter|year))\b",
+    re.IGNORECASE,
+)
+_SHARE_WORDS = re.compile(r"\b(share|percent(age)?|proportion|fraction)\b|%", re.IGNORECASE)
+_COMPARISON_WORDS = re.compile(
+    r"\b(compare|compared|comparison|each|versus|vs\.?|between|respectively|separately)\b",
+    re.IGNORECASE,
 )
 _WHICH_UNIT = re.compile(r"\bwhich (day|week|month|quarter|year)\b", re.IGNORECASE)
 
@@ -168,19 +196,44 @@ def _mentions(question: str, dimension: str, value: str) -> bool:
 
 
 def normalise_plan(plan: MetricPlan, question: str) -> MetricPlan:
-    """Silent, certain corrections: 'placed' orders use orders_placed (D24), and a
-    comparison of periods keeps every period (no sort/limit that would drop one)."""
+    """Silent, certain corrections (D38, D42):
+    - "orders placed" uses orders_placed (D24);
+    - a comparison of periods keeps every period (no limit that drops one);
+    - a time unit in group_by becomes the grain; date "filters" become the period;
+    - a filter on several values of a dimension, in a question that compares them
+      ("compare SP and RJ", "for each of ..."), becomes a breakdown by that dimension.
+    """
     updates: dict[str, object] = {}
     if plan.metric == "orders" and re.search(r"\bplaced\b", question, re.IGNORECASE):
         updates["metric"] = "orders_placed"
-    if plan.periods and plan.limit and plan.limit < len(plan.periods):
+    if plan.periods and plan.limit and plan.limit < len(plan.periods) and not plan.compare:
         updates |= {"limit": None, "sort": None}
+    group_by = [d for d in plan.group_by if d not in TIME_UNITS]
+    time_in_group = [d for d in plan.group_by if d in TIME_UNITS]
+    if time_in_group and not plan.grain and not plan.periods:
+        unit = time_in_group[0]
+        updates["grain"] = "day" if unit in ("date", "period") else unit
+    filters = {d: v for d, v in plan.filters.items() if d not in TIME_UNITS}
+    days = sorted(
+        v for d, vs in plan.filters.items() if d in ("date", "day") for v in vs
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v)
+    )  # fmt: skip
+    if days and not plan.periods:
+        updates["period"] = Period(first_day=days[0], last_day=days[-1])
+    if _COMPARISON_WORDS.search(question):
+        for dimension, values in filters.items():
+            if len(values) > 1 and dimension not in group_by:
+                group_by.append(dimension)
+    if group_by != plan.group_by:
+        updates["group_by"] = group_by
+    if filters != plan.filters:
+        updates["filters"] = filters
     return plan.model_copy(update=updates)
 
 
 def plan_problems(plan: MetricPlan, question: str) -> list[str]:
-    """Deterministic checks that a plan matches its question (D38). Each problem is a
-    sentence the model can act on."""
+    """Deterministic checks that a plan matches its question (D38, D42). Each problem is
+    a sentence the model can act on."""
     problems = []
     names_period = bool(_PERIOD_WORDS.search(question))
     has_period = plan.period is not None or bool(plan.periods)
@@ -189,6 +242,10 @@ def plan_problems(plan: MetricPlan, question: str) -> list[str]:
     if has_period and not names_period:
         problems.append('The question names no period: remove "period" to use all the data.')
     q = question.lower()
+    named_months = [i + 1 for i, m in enumerate(MONTHS) if re.search(rf"\b{m}\b", q)]
+    if len(named_months) == 1 and plan.period and not plan.period.first_day:
+        if plan.period.month != named_months[0]:
+            problems.append(f"The question names month {named_months[0]}: set it in the period.")
     for dimension in plan.group_by:
         words = DIMENSION_WORDS.get(dimension, ())
         if words and not any(w in q for w in words):
@@ -197,8 +254,21 @@ def plan_problems(plan: MetricPlan, question: str) -> list[str]:
         for value in values:
             if not _mentions(question, dimension, value):
                 problems.append(f"The question doesn't mention {dimension} = {value}.")
-    if plan.periods and _CHANGE_WORDS.search(question):
-        problems.append('Growth or change between periods needs custom SQL: {"kind": "custom"}.')
+    if plan.share_of and not _SHARE_WORDS.search(question):
+        problems.append(
+            'The question asks for no share or percentage: use "filters", not share_of.'
+        )
+    if plan.grain and not plan.change and not _TREND_WORDS.search(question):
+        problems.append("The question asks for no breakdown over time: remove grain.")
+    if (
+        plan.periods
+        and len(plan.periods) == 2
+        and _CHANGE_WORDS.search(question)
+        and not plan.compare
+    ):
+        problems.append('Growth or change between two periods: set "compare": "difference".')
+    if _PREVIOUS_WORDS.search(question) and not plan.change:
+        problems.append('Change from the previous period: set a grain and "change".')
     if _WHICH_UNIT.search(question) and not plan.grain and not plan.periods:
         problems.append('"Which month/week/..." needs that grain, sort desc or asc, and limit 1.')
     return problems
@@ -216,20 +286,29 @@ If ONE governed metric answers the question exactly, reply with a plan:
  "periods": [<period>, <period>],               // two or more periods side by side
  "grain": "day" | "week" | "month" | "quarter" | "year",  // for trends over time
  "share_of": {{"<dimension>": ["<value>"]}},      // only for "what share / percentage of"
- "sort": "desc" | "asc",
+ "change": "absolute" | "percent",              // with grain: change from the previous period
+                                                // (month-over-month, biggest drop/rise)
+ "compare": "difference" | "percent",           // with exactly 2 periods: per group, the change
+                                                // from the first period to the second (growth)
+ "min_group_size": N,                           // "among X with at least N orders/reviews"
+ "sort": "desc" | "asc",                        // with change/compare, sorts on the change
  "limit": N,
  "notes": ["how you read the question"]}}
 Omit keys you don't need. Never invent a period, filter or breakdown the question doesn't ask for.
 
 Reply {{"kind": "custom", "notes": ["why"]}} when no metric fits EXACTLY: a different
-measure (e.g. a median when only an average exists), two metrics at once, growth or change
-between periods, cohorts, or thresholds on groups.
+measure, two metrics at once, or a condition on each order (e.g. "orders with more than 2
+items") that no metric expresses.
 
 Rules:
 - "How many / how much ... from X" is a filter on X, not a share. Use share_of only for
   "share", "percentage" or "proportion".
 - "Which month (week, day) had the highest X": grain = that unit, sort desc, limit 1.
 - "Orders placed" uses the orders_placed metric.
+- "X vs Y" groups that exist as a dimension (late vs on time, first vs repeat orders) are a
+  group_by on that dimension.
+- Growth, rise or fall between two periods: "periods" + "compare"; biggest drop or rise from
+  one period to the next: "grain" + "change" + sort + limit 1.
 - Rankings: "highest", "most", "top" sort desc; "lowest", "least", "fewest" sort asc.
   "Worst" and "best" depend on the metric: for rates of bad outcomes (late, canceled,
   1-2 star) worst = highest; for good outcomes (review score, on-time rate) worst = lowest;
@@ -242,6 +321,9 @@ Metrics:
 
 Dimensions and their values:
 {dimensions}
+
+Glossary:
+{glossary}
 
 Examples:
 {examples}
@@ -261,9 +343,26 @@ PLAN_EXAMPLES = [
     ("Show cancellation rate by week in March 2018.",
      {"kind": "metric", "metric": "cancellation_rate", "grain": "week",
       "period": {"year": 2018, "month": 3}}),
-    ("Which categories grew orders fastest between 2017 and 2018?",
-     {"kind": "custom", "notes": ["growth between two periods per category"]}),
+    ("Show how average instalments changed per payment type from Q1 2017 to Q1 2018, "
+     "biggest increase first.",
+     {"kind": "metric", "metric": "avg_installments", "group_by": ["payment_type"],
+      "periods": [{"year": 2017, "quarter": 1}, {"year": 2018, "quarter": 1}],
+      "compare": "difference", "sort": "desc", "limit": 1}),
+    ("Show the quarter-over-quarter percentage change in active sellers during 2018.",
+     {"kind": "metric", "metric": "active_sellers", "grain": "quarter", "change": "percent",
+      "period": {"year": 2018}}),
+    ("Show the 3 best-rated product categories, counting only categories with 200+ "
+     "reviewed orders.",
+     {"kind": "metric", "metric": "avg_review_score", "group_by": ["product_category"],
+      "min_group_size": 200, "sort": "desc", "limit": 3}),
+    ("Show GMV and number of orders side by side for each state in 2017.",
+     {"kind": "custom", "notes": ["two metrics at once"]}),
 ]  # fmt: skip
+
+
+def glossary_block(layer: SemanticLayer) -> str:
+    """The business glossary as prompt lines."""
+    return "\n".join(f"- {t.term}: {t.definition}" for t in layer.glossary)
 
 
 def plan_messages(
@@ -282,6 +381,6 @@ def plan_messages(
     window = layer.default_window
     system = PLANNER_SYSTEM.format(
         start=window.start, end=window.end, metrics=metrics, dimensions=dimensions,
-        examples=examples,
+        glossary=glossary_block(layer), examples=examples,
     )  # fmt: skip
     return [{"role": "system", "content": system}, {"role": "user", "content": question}]

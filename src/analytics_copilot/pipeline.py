@@ -370,7 +370,7 @@ class AskPipeline:
                     generation, messages, "semantic_plan", response, timer, usage
                 )
                 candidate = await self._apply_result_feedback(
-                    messages, candidate, timer, usage, temperature, sample
+                    question, messages, candidate, timer, usage, temperature, sample
                 )
                 candidates.append(candidate)
             except (LLMOutputError, SQLValidationError, QueryError) as error:
@@ -405,6 +405,7 @@ class AskPipeline:
 
     async def _apply_result_feedback(
         self,
+        question: str,
         messages: list[Message],
         candidate: tuple[ValidatedSQL, QueryResult, SQLGeneration],
         timer: StageTimer,
@@ -416,7 +417,7 @@ class AskPipeline:
         The fix is kept only if it runs and has fewer problems."""
         validated, result, generation = candidate
         truncated = len(result.rows) > self.settings.max_rows
-        problems = result_problems(result.columns, result.rows, self.layer, truncated)
+        problems = result_problems(result.columns, result.rows, self.layer, truncated, question)
         if not problems:
             return candidate
         allowed = {
@@ -437,7 +438,7 @@ class AskPipeline:
                 return candidate
         fixed_truncated = len(fixed_result.rows) > self.settings.max_rows
         remaining = result_problems(
-            fixed_result.columns, fixed_result.rows, self.layer, fixed_truncated
+            fixed_result.columns, fixed_result.rows, self.layer, fixed_truncated, question
         )
         return (fixed_sql, fixed_result, fixed) if len(remaining) < len(problems) else candidate
 

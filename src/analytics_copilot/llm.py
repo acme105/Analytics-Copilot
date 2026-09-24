@@ -82,8 +82,10 @@ class OpenAICompatibleClient:
         self, role: Role, messages: list[Message], temperature: float = 0.0, sample: int = 0
     ) -> Completion:
         """Complete a chat with the model configured for ``role``."""
+        # A fixed seed per sampled draw makes self-consistency repeatable across runs (D45).
+        seed = {"seed": sample} if temperature > 0 else {}
         response = await self._client.chat.completions.create(
-            model=self._models[role], messages=messages, temperature=temperature
+            model=self._models[role], messages=messages, temperature=temperature, **seed
         )
         usage = response.usage
         return Completion(

@@ -28,7 +28,7 @@ GOOD = f"SELECT customer_state, SUM(price) AS gmv FROM fct_order_items WHERE is_
 def test_rankings_sort_on_the_value_and_limit() -> None:
     sql = compile_metric(LAYER, "late_delivery_rate", dimensions=["customer_state"],
                          sort="desc", limit=5)  # fmt: skip
-    assert sql.endswith("ORDER BY late_delivery_rate DESC\nLIMIT 5")
+    assert sql.endswith("ORDER BY late_delivery_rate DESC NULLS LAST\nLIMIT 5")
     assert "(is_delivered)" in sql
 
 
@@ -232,7 +232,7 @@ def test_placed_orders_use_orders_placed_and_comparisons_keep_every_period() -> 
         ({"metric": "gmv", "group_by": ["customer_state"]}, "What was GMV in 2017?",
          "breakdown by customer_state"),
         ({"metric": "gmv", "periods": [{"year": 2017}, {"year": 2018}]},
-         "How much did GMV grow from 2017 to 2018?", "custom SQL"),
+         "How much did GMV grow from 2017 to 2018?", "compare"),
         ({"metric": "gmv"}, "Which month had the highest GMV?", "needs that grain"),
     ],
 )  # fmt: skip
@@ -245,3 +245,73 @@ def test_plan_checks_accept_state_names_and_named_values() -> None:
     plan = MetricPlan(kind="metric", metric="orders", filters={"customer_state": ["SP"]},
                       period=Period(year=2018))  # fmt: skip
     assert plan_problems(plan, "How many orders came from São Paulo state in 2018?") == []
+
+
+# --- D42-D45: new plan options, normalisation, shape checks ---
+
+
+def test_time_units_in_group_by_and_filters_are_moved() -> None:
+    plan = MetricPlan(kind="metric", metric="new_customers", group_by=["month"],
+                      period=Period(year=2017))  # fmt: skip
+    assert normalise_plan(plan, "New customers in each month of 2017").grain == "month"
+    day = MetricPlan(kind="metric", metric="orders_placed", filters={"date": ["2017-11-24"]})
+    fixed = normalise_plan(day, "Orders placed on 24 November 2017")
+    assert fixed.filters == {} and fixed.period.to_range()[0] == date(2017, 11, 24)
+
+
+def test_several_values_in_a_comparison_become_a_breakdown() -> None:
+    plan = MetricPlan(kind="metric", metric="gmv", filters={"customer_state": ["SP", "RJ"]})
+    assert normalise_plan(plan, "Compare GMV between SP and RJ").group_by == ["customer_state"]
+    assert normalise_plan(plan, "Total GMV of SP and RJ together").group_by == []
+
+
+NEW_CHECKS = [
+    ({"metric": "avg_delivery_days", "grain": "day"},
+     "On average, how many days does delivery take?", "remove grain"),
+    ({"metric": "gmv", "share_of": {"customer_state": ["SP"]}},
+     "Top categories by GMV in SP", "not share_of"),
+    ({"metric": "active_sellers", "period": {"year": 2018}},
+     "How many sellers sold in August 2018?", "month 8"),
+    ({"metric": "orders", "grain": "month", "period": {"year": 2018}},
+     "Orders month-over-month in 2018", '"change"'),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("plan", "question", "expected"), NEW_CHECKS)
+def test_new_plan_checks(plan: dict, question: str, expected: str) -> None:
+    problems = plan_problems(MetricPlan(kind="metric", **plan), question)
+    assert any(expected in p for p in problems), problems
+
+
+def test_new_query_shapes_compile_and_run_on_the_tiny_warehouse(tiny_warehouse) -> None:
+    import duckdb
+
+    con = duckdb.connect(str(tiny_warehouse), read_only=True)
+    change = compile_metric(
+        LAYER, "orders_placed", grain="month", start=date(2018, 2, 1), change="absolute"
+    )
+    # February (1 order) vs January (2): January is fetched though the range starts in Feb.
+    assert con.execute(change).fetchall() == [(date(2018, 2, 1), 1, -1)]
+    compare = compile_metric(
+        LAYER, "gmv", dimensions=["customer_state"], compare="difference",
+        periods=[(date(2017, 1, 1), date(2018, 1, 1)), (date(2018, 1, 1), date(2018, 9, 1))],
+    )  # fmt: skip
+    assert "JOIN p2 USING (customer_state)" in compare
+    grouped = compile_metric(LAYER, "gmv", dimensions=["customer_state"], min_group_size=2)
+    assert con.execute(grouped).fetchall() == [("RJ", 250.0)]
+
+
+def test_dimension_filters_apply_whenever_the_dimension_is_used() -> None:
+    sql = compile_metric(LAYER, "avg_review_score", dimensions=["delivery_status"])
+    assert "(delivery_status IS NOT NULL)" in sql
+
+
+def test_shape_checks_catch_identical_columns_missing_first_change_and_single_values() -> None:
+    same = result_problems(["yr", "a", "b"], [(date(2017, 1, 1), 0.5, 0.5)], LAYER, False)
+    assert any("identical" in p for p in same)
+    lag = result_problems(
+        ["m", "chg"], [(date(2018, 1, 1), None), (date(2018, 2, 1), 0.1)], LAYER, False
+    )
+    assert any("previous period" in p for p in lag)
+    one = result_problems(["aov"], [(137.4,)], LAYER, False, "First vs repeat orders: AOV?")
+    assert any("one value" in p for p in one)

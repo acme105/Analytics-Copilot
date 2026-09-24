@@ -149,6 +149,10 @@ def sql_messages(
             "Governed metrics:\n" + _metric_block(layer, metric_names),
             "Dimensions:\n" + _dimension_block(layer),
         ]
+        if mode == "semantic_plan" and layer.glossary:
+            parts.append(
+                "Glossary:\n" + "\n".join(f"- {t.term}: {t.definition}" for t in layer.glossary)
+            )
         if dimension_values:
             parts.append(
                 "Dimension values (use exactly these spellings in filters):\n"

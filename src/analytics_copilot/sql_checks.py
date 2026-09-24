@@ -118,10 +118,20 @@ def _fan_out_joins(tree: exp.Expression, dimension_columns: set[str]) -> list[st
     return problems
 
 
+_COMPARES = re.compile(
+    r"\b(vs\.?|versus|compare[ds]?|compared with|between .+ and|differ|separately|each group)\b",
+    re.IGNORECASE,
+)
+
+
 def result_problems(
-    columns: list[str], rows: list[tuple], layer: SemanticLayer, truncated: bool
+    columns: list[str],
+    rows: list[tuple],
+    layer: SemanticLayer,
+    truncated: bool,
+    question: str = "",
 ) -> list[str]:
-    """Signs the result doesn't answer the question, in words the model can act on."""
+    """Signs the result doesn't answer the question, in words the model can act on (D28, D44)."""
     if not rows:
         return ["The query returned no rows. Check the filters and filter values."]
     problems = []
@@ -141,4 +151,35 @@ def result_problems(
             problems.append(f"Column {column} is empty (all NULL).")
     if truncated:
         problems.append("The result hit the row limit; aggregate or add a LIMIT for top-N.")
+    problems += _shape_problems(columns, rows, question)
+    return problems
+
+
+def _shape_problems(columns: list[str], rows: list[tuple], question: str) -> list[str]:
+    """Result shapes that show a multi-step query went wrong."""
+    problems = []
+    numeric = [
+        i for i in range(len(columns))
+        if all(isinstance(r[i], int | float) and not isinstance(r[i], bool) for r in rows)
+    ]  # fmt: skip
+    for a, b in ((a, b) for n, a in enumerate(numeric) for b in numeric[n + 1 :]):
+        if len(rows) > 0 and all(r[a] == r[b] for r in rows):
+            problems.append(
+                f"Columns {columns[a]} and {columns[b]} are identical in every row: the split "
+                "you meant (e.g. by year or by group) did not happen. Group by it instead."
+            )
+            break
+    first_is_date = rows and isinstance(rows[0][0], date | datetime)
+    if first_is_date and len(rows) > 1:
+        for i in range(1, len(columns)):
+            if rows[0][i] is None and all(r[i] is not None for r in rows[1:]):
+                problems.append(
+                    f"{columns[i]} is empty only in the first period: it has no previous period. "
+                    "Include the period before in the calculation, then keep the asked periods."
+                )
+    if _COMPARES.search(question) and len(rows) == 1 and len(numeric) <= 1:
+        problems.append(
+            "The question compares groups or periods, but the result has one value. "
+            "Return one row (or one column) per group being compared."
+        )
     return problems
