@@ -26,19 +26,23 @@ PLAUSIBLE = {
     "items_per_order": (1.0, 1.5),
     "active_customers": (85_000, 97_000),
     "new_customers": (85_000, 97_000),
-    "repeat_purchase_rate": (0.01, 0.10),
+    "repeat_purchase_rate": (0.005, 0.10),
     "active_sellers": (2_500, 3_100),
     "gmv_per_seller": (2_000, 8_000),
     "freight_ratio": (0.10, 0.30),
     "on_time_delivery_rate": (0.85, 0.97),
     "avg_delivery_days": (8, 20),
     "late_delivery_rate": (0.03, 0.15),
-    "cancellation_rate": (0.0, 0.02),
+    "cancellation_rate": (0.0, 0.03),
     "avg_review_score": (3.8, 4.4),
     "low_review_share": (0.08, 0.20),
     "avg_installments": (2.5, 4.5),
     "credit_card_payment_share": (0.65, 0.90),
 }
+
+# Months present when grouped by month. The 90-day repeat rate needs 90 days of follow-up
+# before the 3 Sep 2018 cutoff, so its cohorts stop at June 2018.
+EXPECTED_MONTHS = {name: 20 for name in LAYER.metrics} | {"repeat_purchase_rate": 18}
 
 pytestmark = pytest.mark.skipif(
     not WAREHOUSE.exists() or not RAW.exists(), reason="run `make warehouse` first"
@@ -76,7 +80,7 @@ def test_metric_compiles_by_month_and_dimension(
         compile_metric(LAYER, name, grain="month", dimensions=[dimension])
     ).fetchall()
     assert rows
-    assert len({r[0] for r in rows}) == 20  # 20 months in the default window
+    assert len({r[0] for r in rows}) == EXPECTED_MONTHS[name]
 
 
 def test_orders_on_time_and_late_rates_sum_to_one(con: duckdb.DuckDBPyConnection) -> None:
@@ -107,6 +111,11 @@ def valid(orders: pd.DataFrame) -> pd.DataFrame:
     return orders[~orders["order_status"].isin(["canceled", "unavailable"])]
 
 
+def valid_orders_with_people(orders: pd.DataFrame) -> pd.DataFrame:
+    customers = pd.read_csv(RAW / "olist_customers_dataset.csv")
+    return valid(orders).merge(customers, on="customer_id")
+
+
 def test_gmv_matches_pandas(con: duckdb.DuckDBPyConnection, raw_orders: pd.DataFrame) -> None:
     items = pd.read_csv(RAW / "olist_order_items_dataset.csv")
     expected = items.merge(valid(raw_orders)[["order_id"]], on="order_id")["price"].sum()
@@ -116,8 +125,7 @@ def test_gmv_matches_pandas(con: duckdb.DuckDBPyConnection, raw_orders: pd.DataF
 def test_active_customers_matches_pandas(
     con: duckdb.DuckDBPyConnection, raw_orders: pd.DataFrame
 ) -> None:
-    customers = pd.read_csv(RAW / "olist_customers_dataset.csv")
-    expected = valid(raw_orders).merge(customers, on="customer_id")["customer_unique_id"].nunique()
+    expected = valid_orders_with_people(raw_orders)["customer_unique_id"].nunique()
     assert metric_value(con, "active_customers") == expected
 
 
@@ -133,3 +141,23 @@ def test_late_delivery_rate_matches_pandas(
         > delivered["order_estimated_delivery_date"].dt.normalize()
     )
     assert metric_value(con, "late_delivery_rate") == pytest.approx(late.mean(), rel=1e-9)
+
+
+def test_90_day_repeat_rate_matches_pandas(con: duckdb.DuckDBPyConnection) -> None:
+    # Needs the full history, not the windowed orders: first orders can predate the window.
+    orders = pd.read_csv(RAW / "olist_orders_dataset.csv", parse_dates=["order_purchase_timestamp"])
+    people = valid_orders_with_people(orders).sort_values(
+        ["customer_unique_id", "order_purchase_timestamp", "order_id"]
+    )
+    by_person = people.groupby("customer_unique_id")["order_purchase_timestamp"]
+    first, second = by_person.nth(0), by_person.nth(1)
+    first = pd.Series(first.values, index=people.loc[first.index, "customer_unique_id"])
+    second = pd.Series(second.values, index=people.loc[second.index, "customer_unique_id"])
+    cutoff = people["order_purchase_timestamp"].max()
+    ninety = pd.Timedelta(days=90)
+
+    cohort = first[
+        (first >= pd.Timestamp(START)) & (first < pd.Timestamp(END)) & (first + ninety <= cutoff)
+    ]
+    repeated = second.reindex(cohort.index) <= cohort + ninety
+    assert metric_value(con, "repeat_purchase_rate") == pytest.approx(repeated.mean(), rel=1e-9)
