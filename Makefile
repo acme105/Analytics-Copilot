@@ -49,9 +49,9 @@ kaggle-code:
 	rm -rf $(BUILD) && mkdir -p $(BUILD)/stage
 	git archive HEAD src semantic pyproject.toml | tar -x -C $(BUILD)/stage
 	git rev-parse --short HEAD > $(BUILD)/stage/VERSION
-	tar -czf $(BUILD)/copilot_code.tar.gz -C $(BUILD)/stage .
+	COPYFILE_DISABLE=1 tar -czf $(BUILD)/copilot_code.tar.gz -C $(BUILD)/stage .  # no macOS ._ files
 	rm -rf $(BUILD)/stage
-	printf '{"title": "olist-copilot-code", "id": "$(CODE_DATASET)", "licenses": [{"name": "copyright-authors"}]}' > $(BUILD)/dataset-metadata.json
+	printf '{"title": "olist-copilot-code", "id": "$(CODE_DATASET)", "licenses": [{"name": "unknown"}]}' > $(BUILD)/dataset-metadata.json
 	if uv run kaggle datasets status $(CODE_DATASET) >/dev/null 2>&1; then \
 	    uv run kaggle datasets version -p $(BUILD) -m "code $$(git rev-parse --short HEAD)"; \
 	else \
