@@ -216,3 +216,9 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - **m024 reworded** to "What was GMV **for each of** Bahia, Pernambuco and Ceará…". The old wording fairly allowed one combined total (R$521,930, which `semantic_rag` returned), while the gold has one row per state. The question changed to say what the gold measures; the gold did not change.
 - **Rankings stay literal (m004, m036, m037):** states are ranked by the rate with no minimum volume, even though small states such as Roraima (RR) can lead by chance. The agent shouldn't be marked wrong for skipping a threshold the question never states. A question that wants a threshold must say so, as h003 and h006 do.
+
+## D32. Prefix caching doesn't work on the T4 with vLLM 0.9.2: removed, and a warm-up check added
+
+- **What happened:** the first `semantic_plan` run started vLLM with `--enable-prefix-caching`. The server loaded, but the first requests made vLLM compile its Triton `prefix_prefill` kernel, which fails on the T4's Turing architecture ("PassManager::run failed"). The engine died and all 120 answers failed with a connection error in 0.7 minutes. The run measured nothing, so its results file was discarded.
+- **Fix:** prefix caching removed. The start-up cell now sends one real completion as a warm-up and stops the notebook if it fails, so a broken server can't produce a page of errors that look like results.
+- **Lesson:** a flag that loads without error isn't proven until a real request succeeds. The same was true of the `aimv2` crash (D3).
