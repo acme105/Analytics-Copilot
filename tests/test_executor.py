@@ -22,3 +22,8 @@ async def test_file_access_is_disabled(tiny_warehouse: Path, tmp_path: Path) -> 
     secret.write_text("password\nhunter2\n")
     with pytest.raises(QueryError):
         await run_query(f"SELECT * FROM read_csv_auto('{secret}')", tiny_warehouse, 5)
+
+
+async def test_intervals_become_days(tiny_warehouse: Path) -> None:
+    result = await run_query("SELECT INTERVAL 36 HOUR AS gap", tiny_warehouse, 5)
+    assert result.rows == [(1.5,)]

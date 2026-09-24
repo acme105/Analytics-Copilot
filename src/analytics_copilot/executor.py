@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,6 +28,16 @@ class QueryResult:
     rows: list[tuple]
 
 
+def _plain(value: object) -> object:
+    """DECIMAL -> float, INTERVAL -> days as a float: downstream code (charts, grounding,
+    scoring, JSON) works with plain numbers."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, timedelta):
+        return value.total_seconds() / 86400
+    return value
+
+
 def connect_read_only(path: Path) -> duckdb.DuckDBPyConnection:
     """Open the warehouse read-only, with file and network access disabled."""
     return duckdb.connect(str(path), read_only=True, config={"enable_external_access": False})
@@ -38,11 +49,7 @@ def _run(sql: str, path: Path, timeout_s: float) -> QueryResult:
     timer.start()
     try:
         cursor = con.execute(sql)
-        # DECIMAL arrives as Decimal; downstream code (charts, grounding, JSON) wants floats.
-        rows = [
-            tuple(float(v) if isinstance(v, Decimal) else v for v in row)
-            for row in cursor.fetchall()
-        ]
+        rows = [tuple(_plain(v) for v in row) for row in cursor.fetchall()]
         return QueryResult(columns=[d[0] for d in cursor.description], rows=rows)
     except duckdb.InterruptException as error:
         raise QueryError(f"Query timed out after {timeout_s:g}s.") from error
