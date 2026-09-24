@@ -983,10 +983,7 @@ items:
     difficulty: hard
     category: reviews
     ordered: true
-    ambiguous: true
-    notes: >-
-      The top result is 'unknown' (products with no category). Gold keeps it because it is a
-      category value in the data; a reader might expect it excluded. Decide at review.
+    notes: "unknown (products with no category) counts as a category (decided, D33)."
     gold_sql: |
       SELECT product_category, AVG(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END) AS low_review_share
       FROM fct_orders
@@ -1097,9 +1094,10 @@ items:
       GROUP BY 1 ORDER BY median_delivery_days DESC LIMIT 5
 
   - id: h016
-    question: Of the customers whose first order was in Q1 2018, how many placed a second order by the end of August 2018?
+    question: Of the customers whose first order was in Q1 2018, how many ordered again by the end of August 2018?
     difficulty: hard
     category: customers
+    notes: "Second valid order only (decided, D33). Reworded from \"placed a second order\" so it does not trigger the placed-orders rule (D24)."
     gold_sql: |
       SELECT COUNT(DISTINCT f.customer_unique_id) AS repeat_customers
       FROM fct_orders f
