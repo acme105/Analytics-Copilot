@@ -1,7 +1,7 @@
 DATASET := olistbr/brazilian-ecommerce
 RAW_DIR := data/raw
 
-.PHONY: install data profile lint test
+.PHONY: install data profile warehouse lint test
 
 install:
 	uv sync
@@ -23,6 +23,10 @@ $(RAW_DIR)/.downloaded:
 ## Profile the raw data and write results/phase0_profile.md.
 profile: data
 	uv run python -m analytics_copilot.profiling --data-dir $(RAW_DIR) --out results/phase0_profile.md
+
+## Build warehouse/olist.duckdb (raw -> staging views -> mart tables).
+warehouse: data
+	uv run python -m analytics_copilot.warehouse --data-dir $(RAW_DIR)
 
 lint:
 	uv run ruff check .
