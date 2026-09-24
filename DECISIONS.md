@@ -126,3 +126,15 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - **Chosen:** `/ask` always returns an `AskResponse`. Guard, SQL and output-parse failures give `status: error` with the reason. An unreachable or failing LLM provider gives a clear "LLM provider error" status. Anything unexpected is logged with a stack trace and the request id, and returns a generic error.
 - **Why:** the front end and the eval harness can treat every outcome uniformly, and failures are counted, not lost.
+
+## D20. Eval scoring rules (signed off 2026-09-24)
+
+- **Extra columns: lenient.** A prediction is correct if every gold column is present with matching values (matched by content, not name). Extra predicted columns are ignored.
+- **Percent scale: accepted and flagged.** A column that matches gold exactly ×100 (6.79 vs 0.0679) counts as correct and is logged as `scale: percent`.
+- **Ambiguous questions follow the governed default.** Questions with two fair readings (for example "delivered orders in 2017") are tagged `ambiguous: true`. Gold uses the governed default (purchase date, D6), and accuracy on ambiguous items is reported separately.
+- **Floats:** relative tolerance 1e-3. Row order only counts when the item says `ordered: true`.
+
+## D21. Semantic prompts say which date to use when the question doesn't
+
+- **Change:** one rule added to the `semantic` and `semantic_rag` prompts: if the question doesn't say which date to use, use the metric's date field (purchase date) and state it in `assumptions.notes`. `raw_schema` doesn't get it; it stays the no-business-knowledge baseline.
+- **Why this isn't tuning on the test set:** it applies D6, a decision made in Phase 1, and it was added before any golden question existed. The smoke test showed the need: `raw_schema` answered "delivered orders in 2017" with 40,930 by delivery date, while the governed answer is 43,426 by purchase date.
