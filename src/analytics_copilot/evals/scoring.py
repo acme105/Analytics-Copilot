@@ -4,7 +4,8 @@ Matching rules (DECISIONS D20):
 - columns are matched by content, not name; extra predicted columns are ignored;
 - a predicted column may equal the gold column times 100 (ratio shown as a percentage);
 - row order only matters when the item is ``ordered``;
-- floats match within a relative tolerance of 1e-3.
+- floats match within a relative tolerance of 1e-3;
+- a year may come back as its 1 January date: 2017 equals '2017-01-01' (D39).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlglot.errors import ParseError
 
 REL_TOL = 1e-3
 _MIDNIGHT = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ]00:00:00(\.0+)?$")
+_NEW_YEAR = re.compile(r"^(\d{4})-01-01$")
 
 # Columns whose presence in WHERE is part of a governed metric definition.
 _DEFINITION_FLAGS = {
@@ -55,7 +57,17 @@ def normalise(value: object) -> object:
     return midnight.group(1) if midnight else text.lower()
 
 
+def _year_matches(number: object, text: object) -> bool:
+    """2017.0 vs '2017-01-01': a year returned as DATE_TRUNC('year', ...) (D39)."""
+    if not (isinstance(number, float) and isinstance(text, str)):
+        return False
+    match = _NEW_YEAR.match(text)
+    return bool(match) and number.is_integer() and int(match.group(1)) == int(number)
+
+
 def _equal(a: object, b: object) -> bool:
+    if _year_matches(a, b) or _year_matches(b, a):
+        return True
     if isinstance(a, float) and isinstance(b, float):
         if math.isnan(a) or math.isnan(b):
             return math.isnan(a) and math.isnan(b)

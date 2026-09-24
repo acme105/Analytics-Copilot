@@ -239,3 +239,14 @@ async def test_concurrent_runs_keep_item_order_and_per_question_cache_counts(
     records = await run_eval(pipeline, items, ["semantic"], {}, concurrency=3)
     assert [r["id"] for r in records] == ["t0", "t1", "t2", "t3"]
     assert [r["cached_calls"] for r in records] == [1, 1, 1, 1]
+
+
+def test_a_year_may_come_back_as_its_first_of_january() -> None:
+    gold = [(2017, 4.28), (2017, 2.32), (2018, 4.30)]
+    pred = [
+        ["2017-01-01", 4.28, "on_time"],
+        ["2017-01-01", 2.32, "late"],
+        ["2018-01-01", 4.30, "x"],
+    ]
+    assert compare_results(gold, pred, ordered=False).correct
+    assert not compare_results([(2017, 1.0)], [["2017-02-01", 1.0]], ordered=False).correct
