@@ -50,6 +50,38 @@ business_rules:
     category or seller, sellers): fct_order_items. Payment amounts, types and instalments:
     fct_payments. Never average item rows to get a per-order figure.
 
+# Business vocabulary (D44): what common terms mean in this data, in words and SQL. Shown to
+# the planner and to custom SQL, so definitions aren't left for the model to guess.
+glossary:
+  - term: first order
+    definition: A person's first valid order. customer_order_number = 1 (customer_type = 'first_order').
+  - term: repeat order
+    definition: >-
+      Any later valid order of the same person, all pooled together.
+      customer_order_number >= 2 (customer_type = 'repeat_order'). "First vs repeat" is two groups.
+  - term: new customer
+    definition: A person whose first valid order falls in the period.
+  - term: returning customer
+    definition: >-
+      A first-time customer who placed another valid order before the end of the analysis
+      window (next_order_at < DATE '2018-09-01' on their first order).
+  - term: late / on time
+    definition: >-
+      Delivered after / on or before the estimated date, compared as calendar dates. Only
+      delivered orders have a delivery status.
+  - term: placed orders
+    definition: All orders whatever their status, including canceled and unavailable ones.
+  - term: period-over-period change
+    definition: >-
+      A period's value minus (or divided by) the previous period's. For the first period asked
+      about, include the period before it in the calculation, then keep only the asked periods.
+  - term: per order vs per item
+    definition: >-
+      Per-order figures come from fct_orders (one row per order); per-item figures from
+      fct_order_items. A condition "per order" is tested on the order's totals (gmv, freight, items).
+  - term: cohort
+    definition: Customers grouped by the date of their first valid order.
+
 views:
   fct_orders:
     grain: one row per order, every status
@@ -69,6 +101,10 @@ views:
       customer_order_number: 1 for the person's first valid order, 2 for the second, ...
       repeat_within_90d: on a first order, TRUE if the second order came within 90 days
       has_90d_followup: TRUE if the order is 90+ days before the data cutoff
+      next_order_at: when the person placed their next valid order (NULL if none)
+      days_to_next_order: days from this order to the person's next valid order
+      delivery_status: late / on_time for delivered orders
+      customer_type: first_order / repeat_order for valid orders
   fct_order_items:
     grain: one row per order item (one unit of one product)
     description: Item price and freight with the item's own category and seller tier.
@@ -107,6 +143,18 @@ dimensions:
       Seller size from GMV in the 3 full months before the order month: top (top 10% of
       sellers), mid (next 40%), long_tail (the rest), new_or_dormant (no GMV in those months).
     synonyms: [seller size, seller segment, seller band]
+  delivery_status:
+    column: delivery_status
+    description: late or on_time, for delivered orders (compared as calendar dates).
+    synonyms: [late vs on time, on-time vs late, delivery outcome]
+    required_filters: [delivery_status IS NOT NULL]  # delivered orders only; works on every table
+  customer_type:
+    column: customer_type
+    description: >-
+      first_order (the person's first valid order) or repeat_order (any later valid order,
+      pooled), for valid orders.
+    synonyms: [first vs repeat orders, new vs returning, first-time vs repeat]
+    required_filters: [customer_type IS NOT NULL]  # valid orders only; works on every table
 
 metrics:
   gmv:
@@ -390,3 +438,30 @@ metrics:
     date_field: purchased_at
     unit: days
     synonyms: [median delivery time, typical delivery time, median days to deliver]
+
+  # Cohort metrics (D43): read on first orders, dated by the first order.
+  days_to_second_order:
+    label: Days to second order
+    description: >-
+      For first-time customers who ordered again, the average days between their first and
+      second valid order. Cohort = the first order's date.
+    view: fct_orders
+    expression: AVG(days_to_next_order)
+    grain: order (first orders that have a next order)
+    required_filters: [is_valid, customer_order_number = 1, next_order_at IS NOT NULL]
+    date_field: purchased_at
+    unit: days
+    synonyms: [time to second order, days between first and second order, time to repurchase]
+
+  returning_customers:
+    label: Returning customers
+    description: >-
+      First-time customers in the period who placed another valid order before the end of the
+      analysis window. Cohort = the first order's date.
+    view: fct_orders
+    expression: COUNT(*)
+    grain: order (first orders)
+    required_filters: [is_valid, customer_order_number = 1, "next_order_at < DATE '2018-09-01'"]
+    date_field: purchased_at
+    unit: customers
+    synonyms: [customers who came back, customers who ordered again, repeat customers, came back]

@@ -103,6 +103,9 @@ def dimension_values(path: Path, columns: list[str]) -> dict[str, list[str]]:
         values: dict[str, list[str]] = {}
         for column in columns:
             tables = [t for t, cols in schema.items() if column in cols]
+            if not tables:
+                values[column] = []
+                continue
             union = " UNION ".join(f"SELECT DISTINCT {column} AS v FROM {t}" for t in tables)
             rows = con.execute(f"SELECT v FROM ({union}) WHERE v IS NOT NULL ORDER BY v").fetchall()
             values[column] = [str(r[0]) for r in rows]

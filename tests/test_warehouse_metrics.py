@@ -44,11 +44,15 @@ PLAUSIBLE = {
     "payment_value": (1.2e7, 2e7),
     "canceled_orders": (500, 2_500),
     "median_delivery_days": (7, 15),
+    "days_to_second_order": (30, 150),
+    "returning_customers": (1_000, 5_000),
 }
 
 # Months present when grouped by month. The 90-day repeat rate needs 90 days of follow-up
 # before the 3 Sep 2018 cutoff, so its cohorts stop at June 2018.
 EXPECTED_MONTHS = {name: 20 for name in LAYER.metrics} | {"repeat_purchase_rate": 18}
+# Canceled orders have no delivery status or customer type, so these breakdowns are empty.
+EMPTY_BY_DESIGN = {("canceled_orders", "delivery_status"), ("canceled_orders", "customer_type")}
 
 pytestmark = pytest.mark.skipif(
     not WAREHOUSE.exists() or not RAW.exists(), reason="run `make warehouse` first"
@@ -85,6 +89,9 @@ def test_metric_compiles_by_month_and_dimension(
     rows = con.execute(
         compile_metric(LAYER, name, grain="month", dimensions=[dimension])
     ).fetchall()
+    if (name, dimension) in EMPTY_BY_DESIGN:
+        assert rows == []
+        return
     assert rows
     assert len({r[0] for r in rows}) == EXPECTED_MONTHS[name]
 

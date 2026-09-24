@@ -23,7 +23,7 @@ async def test_health(client: httpx.AsyncClient) -> None:
 
 async def test_metrics_catalogue_lists_all_governed_metrics(client: httpx.AsyncClient) -> None:
     body = (await client.get("/metrics")).json()
-    assert len(body["metrics"]) == 24
+    assert len(body["metrics"]) == 26
     assert {"name", "description", "expression", "required_filters", "date_field", "unit"} <= set(
         body["metrics"][0]
     )

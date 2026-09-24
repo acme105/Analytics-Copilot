@@ -228,7 +228,19 @@ SELECT
     COALESCE(cs.next_order_at <= cs.purchased_at + INTERVAL 90 DAY, FALSE) AS repeat_within_90d,
     -- Rule: only orders placed 90+ days before the data cutoff have a full 90-day window to
     -- repeat in; later ones would bias the repeat rate down.
-    o.purchased_at + INTERVAL 90 DAY <= dc.last_purchase_at AS has_90d_followup
+    o.purchased_at + INTERVAL 90 DAY <= dc.last_purchase_at AS has_90d_followup,
+    -- Cohort columns (D43): when the person's next valid order came, and how long after.
+    cs.next_order_at,
+    DATE_DIFF('second', o.purchased_at, cs.next_order_at) / 86400.0 AS days_to_next_order,
+    -- Comparison dimensions (D42): named segments so "late vs on time" and "first vs
+    -- repeat orders" are one breakdown, not a SQL trick. NULL where they don't apply.
+    CASE WHEN o.delivered_at IS NOT NULL THEN
+        CASE WHEN CAST(o.delivered_at AS DATE) > CAST(o.estimated_delivery_at AS DATE)
+             THEN 'late' ELSE 'on_time' END
+    END AS delivery_status,
+    CASE WHEN cs.customer_order_number = 1 THEN 'first_order'
+         WHEN cs.customer_order_number > 1 THEN 'repeat_order'
+    END AS customer_type
 FROM stg_orders o
 CROSS JOIN data_cutoff dc
 JOIN stg_customers c USING (customer_id)
@@ -256,7 +268,9 @@ SELECT
     i.freight_value,
     p.category AS product_category,
     COALESCE(sm.seller_tier, 'new_or_dormant') AS seller_tier,
-    o.payment_type
+    o.payment_type,
+    o.delivery_status,
+    o.customer_type
 FROM stg_order_items i
 JOIN fct_orders o USING (order_id)
 JOIN stg_products p USING (product_id)
@@ -276,7 +290,9 @@ SELECT
     o.is_valid,
     o.purchased_at,
     o.product_category,
-    o.seller_tier
+    o.seller_tier,
+    o.delivery_status,
+    o.customer_type
 FROM stg_order_payments pay
 JOIN fct_orders o USING (order_id);
 """

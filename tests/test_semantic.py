@@ -9,8 +9,8 @@ from analytics_copilot.semantic import compile_metric, load_semantic_layer
 LAYER = load_semantic_layer()
 
 
-def test_layer_has_24_metrics_with_complete_definitions() -> None:
-    assert len(LAYER.metrics) == 24
+def test_layer_has_26_metrics_with_complete_definitions() -> None:
+    assert len(LAYER.metrics) == 26
     for name, metric in LAYER.metrics.items():
         assert metric.description and metric.expression and metric.unit, name
         assert metric.synonyms, f"{name} needs synonyms for retrieval"
