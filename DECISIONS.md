@@ -72,3 +72,19 @@ Each entry records the decision, the options considered, why this one, and the t
 - **Chosen:** each metric in `semantic/metrics.yaml` is one aggregate expression over one pre-joined mart, plus required filters and a date field. `compile_metric` adds the window, time grain, dimensions and filters. No joins happen at query time, because the marts already carry every dimension.
 - **Why:** about 100 lines of code that fully explain what each number means. It gives the eval harness a deterministic, governed baseline to compare the LLM against.
 - **Trade-off:** metrics can't combine views (for example GMV per delivered order) without a new mart column. That's acceptable at 18 metrics.
+
+## D12. Cancellation includes `unavailable` orders (signed off 2026-09-24)
+
+- **Options:** `canceled` only; `canceled` + `unavailable`.
+- **Chosen:** both. An `unavailable` order was placed and then couldn't be fulfilled. From the customer's side it's a cancellation.
+- **Measured:** cancellation rate over the window is 1.19%. It would be 0.59% counting `canceled` only.
+
+## D13. Repeat purchase rate is a 90-day rate on first-order cohorts (signed off 2026-09-24)
+
+- **Options:** share of the period's active customers who had any earlier order; customers with 2+ orders within the period; the share of first-time customers who order again within 90 days.
+- **Chosen:** 90 days. Of customers whose first valid order falls in the period, the share whose second valid order came within 90 days of it. A first order only counts if it was placed at least 90 days before the data cutoff (last valid purchase, 3 Sep 2018), so monthly cohorts stop at June 2018.
+- **Why:** a fixed follow-up window makes every cohort comparable. A plain "2+ orders in the period" rate grows with the period length, and late cohorts would look worse only because they had less time.
+- **Measured:** 2.31% over the window, and 1.6%–3.9% by monthly cohort.
+- **Open question:** 45% of these repeats (801 of 1,772 second orders within 90 days) came on the same day as the first order, 775 of them within an hour. They look like one basket split into two checkouts. Excluding second orders within 1 hour gives 1.30%. Kept in for now, as specified.
+
+The other drafted definitions (valid orders, delivery metrics grouped by purchase month, credit-card-only instalments, card share by value, order-level dimensions from the highest-value item and payment) were signed off unchanged on 2026-09-24.
