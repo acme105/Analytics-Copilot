@@ -300,3 +300,40 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
   - results are reported separately from the dev set;
   - items start unverified until the owner reviews them;
   - a test keeps every held-out question below 0.6 word overlap with the example library, smoke questions, planner examples and dev set.
+
+## D42. Planner regression fixes: deterministic normalisation and checks
+
+These fix the 9 regressions of D40 in code, not in the prompt.
+- **Normalisation** (silent and certain):
+  - a time unit in `group_by` becomes the grain;
+  - `date` filters become the period;
+  - a filter on several values of a dimension, in a question that compares them ("compare SP and RJ", "for each of"), becomes a breakdown by that dimension.
+- **Checks** (one repair):
+  - a grain with no trend wording in the question;
+  - share_of with no share wording;
+  - a month named in the question but missing from the period;
+  - a change from the previous period without `change`;
+  - growth between two periods without `compare`.
+- **Also new:** two comparison dimensions, `delivery_status` (late / on_time) and `customer_type` (first_order / repeat_order). Each has its own required filter, written so it works on every table.
+
+## D43. New query shapes for hard questions, compiled in code
+
+- **`change`** (absolute or percent, with a grain): each period's change from the previous one. The compiler fetches one extra period *before* the asked range (never before the window), then trims, so the first asked period has a change (h002-type).
+- **`compare`** (difference or percent, with exactly two periods): one row per group with the value in each period and the change (h001, h003-type growth or fall).
+- **`min_group_size`:** `HAVING COUNT(*) >= N`, applied per period with compare (h003, h006-type thresholds).
+- **Cohort columns and metrics:** `next_order_at` and `days_to_next_order` on orders, plus the metrics `days_to_second_order` and `returning_customers` (h016, h020-type).
+- **Checked against gold:** given the right plan, the compiler reproduces the gold for h001, h002, h003, h006, h007, h008, h010, h016, h020 and m039.
+
+## D44. Business glossary and result-shape checks
+
+- **Glossary:** nine terms in the semantic layer (first vs repeat order, new vs returning customer, late or on time, placed orders, period-over-period change, per order vs per item, cohort), each defined in words and SQL. They're shown to the planner and to custom SQL, so definitions aren't left for the model to guess (the idea behind BIRD's "evidence" hints).
+- **Result-shape checks** on custom SQL, each with one repair:
+  - two value columns identical in every row (a split that didn't happen);
+  - a change that's empty only in the first period (a missing previous period);
+  - a one-value result to a question that compares groups.
+
+## D45. Repeatable sampling and a lenient pivot rule (signed off 2026-09-24)
+
+- **Seed:** each sampled custom-SQL candidate now uses its sample number as the vLLM seed, so reruns give the same candidates. This removes most of the run-to-run noise seen in D40.
+- **Pivot rule:** if the agent spreads groups across value columns (year, late, on_time), the scorer unpivots 2–4 numeric columns into rows when that gives exactly the gold row count, and then matches as usual. Matches are flagged `pivoted`.
+- **Held-out hygiene:** new planner examples were checked against the held-out set for word overlap *and* sentence template. One example taught exactly held-out x_h09's pattern and was replaced; two were rephrased away from x_h04 and x_h05's templates.
