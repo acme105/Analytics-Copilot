@@ -1,0 +1,134 @@
+# Example questions with correct SQL, retrieved as few-shot context in semantic_rag mode.
+#
+# Rule: these must NOT overlap the golden eval set (evals/golden.yaml). If a golden question
+# is a near-duplicate of an example, the eval measures recall, not generalisation.
+# Every example is checked by tests/test_examples.py: it passes the SQL guard and runs.
+
+examples:
+  - question: What was total GMV in 2017?
+    sql: |
+      SELECT SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      LIMIT 1
+
+  - question: Show monthly orders over the analysis window.
+    sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, COUNT(*) AS orders
+      FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY 1
+      LIMIT 200
+
+  - question: Which 5 product categories had the highest GMV in 2018?
+    sql: |
+      SELECT product_category, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY gmv DESC
+      LIMIT 5
+
+  - question: What is the average order value by customer state?
+    sql: |
+      SELECT customer_state, SUM(gmv) / COUNT(*) AS aov
+      FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY aov DESC
+      LIMIT 30
+
+  - question: How has the late delivery rate changed month by month?
+    sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY 1
+      LIMIT 200
+
+  - question: What share of payment value was paid by boleto?
+    sql: |
+      SELECT SUM(payment_value) FILTER (WHERE payment_type = 'boleto') / SUM(payment_value)
+             AS boleto_payment_share
+      FROM fct_payments
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      LIMIT 1
+
+  - question: Average review score by seller tier.
+    sql: |
+      SELECT seller_tier, AVG(review_score) AS avg_review_score, COUNT(*) AS reviewed_orders
+      FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY avg_review_score DESC
+      LIMIT 10
+
+  - question: How many new customers did we acquire each quarter?
+    sql: |
+      SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period,
+             COUNT(DISTINCT customer_unique_id) AS new_customers
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY 1
+      LIMIT 20
+
+  - question: What is the freight ratio for the furniture_decor category?
+    sql: |
+      SELECT SUM(freight_value) / SUM(price) AS freight_ratio
+      FROM fct_order_items
+      WHERE is_valid AND product_category = 'furniture_decor'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      LIMIT 1
+
+  - question: How many sellers were active each month in 2018?
+    sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             COUNT(DISTINCT seller_id) AS active_sellers
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY 1
+      LIMIT 12
+
+  - question: What was the cancellation rate by payment type?
+    sql: |
+      SELECT payment_type, AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate,
+             COUNT(*) AS orders
+      FROM fct_orders
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY cancellation_rate DESC
+      LIMIT 10
+
+  - question: Compare average delivery days between the two largest states.
+    sql: |
+      WITH top_states AS (
+          SELECT customer_state FROM fct_orders
+          WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 2
+      )
+      SELECT customer_state, AVG(delivery_days) AS avg_delivery_days
+      FROM fct_orders
+      WHERE is_delivered AND customer_state IN (SELECT customer_state FROM top_states)
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY 1
+      LIMIT 2
+
+  - question: What is the month-over-month change in GMV?
+    sql: |
+      WITH monthly AS (
+          SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+          FROM fct_order_items
+          WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1
+      )
+      SELECT period, gmv, gmv / LAG(gmv) OVER (ORDER BY period) - 1 AS mom_change
+      FROM monthly ORDER BY period
+      LIMIT 200
+
+  - question: What is the 90-day repeat purchase rate for customers acquired in 2017?
+    sql: |
+      SELECT AVG(CASE WHEN repeat_within_90d THEN 1 ELSE 0 END) AS repeat_purchase_rate
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1 AND has_90d_followup
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      LIMIT 1
