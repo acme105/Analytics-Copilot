@@ -49,9 +49,15 @@ class Usage:
 
 
 class LLMClient(Protocol):
-    """Anything that can complete a chat for a role. Tests pass a fake."""
+    """Anything that can complete a chat for a role. Tests pass a fake.
 
-    async def complete(self, role: Role, messages: list[Message]) -> Completion: ...
+    ``sample`` numbers repeated draws of the same prompt (self-consistency); it has no
+    effect on the model and only keeps cached draws apart.
+    """
+
+    async def complete(
+        self, role: Role, messages: list[Message], temperature: float = 0.0, sample: int = 0
+    ) -> Completion: ...
 
 
 class LLMOutputError(RuntimeError):
@@ -72,10 +78,12 @@ class OpenAICompatibleClient:
             "summary": settings.summary_model,
         }
 
-    async def complete(self, role: Role, messages: list[Message]) -> Completion:
-        """Complete a chat at temperature 0 with the model configured for ``role``."""
+    async def complete(
+        self, role: Role, messages: list[Message], temperature: float = 0.0, sample: int = 0
+    ) -> Completion:
+        """Complete a chat with the model configured for ``role``."""
         response = await self._client.chat.completions.create(
-            model=self._models[role], messages=messages, temperature=0
+            model=self._models[role], messages=messages, temperature=temperature
         )
         usage = response.usage
         return Completion(
@@ -109,7 +117,13 @@ def extract_json(text: str) -> dict:
 
 
 async def complete_json(
-    llm: LLMClient, role: Role, messages: list[Message], schema: type[T], usage: Usage
+    llm: LLMClient,
+    role: Role,
+    messages: list[Message],
+    schema: type[T],
+    usage: Usage,
+    temperature: float = 0.0,
+    sample: int = 0,
 ) -> T:
     """Ask for JSON matching ``schema``; on a parse or validation error, retry once.
 
@@ -119,7 +133,7 @@ async def complete_json(
         LLMOutputError: the retry also failed.
     """
     for attempt in range(2):
-        completion = await llm.complete(role, messages)
+        completion = await llm.complete(role, messages, temperature=temperature, sample=sample)
         usage.record(completion)
         try:
             return schema.model_validate(extract_json(completion.text))

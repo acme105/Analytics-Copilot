@@ -132,3 +132,41 @@ examples:
       WHERE is_valid AND customer_order_number = 1 AND has_90d_followup
         AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
       LIMIT 1
+
+  # Added for semantic_plan's custom-SQL route (D28): generic query shapes. The need for
+  # these shapes was seen in eval failures, so the golden set is now a development set (D29).
+  - question: Compare total freight charged in Q3 2017 and Q3 2018.
+    sql: |
+      SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period,
+             SUM(freight_value) AS total_freight
+      FROM fct_order_items
+      WHERE is_valid AND (
+          (purchased_at >= DATE '2017-07-01' AND purchased_at < DATE '2017-10-01')
+          OR (purchased_at >= DATE '2018-07-01' AND purchased_at < DATE '2018-09-01'))
+      GROUP BY 1 ORDER BY 1
+      LIMIT 2
+
+  - question: What share of 2017 GMV came from the sports_leisure category?
+    sql: |
+      SELECT SUM(price) FILTER (WHERE product_category = 'sports_leisure') / SUM(price)
+             AS sports_leisure_gmv_share
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      LIMIT 1
+
+  - question: How many valid orders in each product category had more than 2 items in 2017?
+    sql: |
+      SELECT product_category, COUNT(*) AS orders
+      FROM fct_orders
+      WHERE is_valid AND items > 2
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY orders DESC
+      LIMIT 200
+
+  - question: Which 3 product categories have the lowest on-time delivery rate?
+    sql: |
+      SELECT product_category, AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY on_time_delivery_rate ASC
+      LIMIT 3

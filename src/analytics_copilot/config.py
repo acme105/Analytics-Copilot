@@ -23,6 +23,7 @@ class Settings:
     warehouse_path: Path = Path("warehouse/olist.duckdb")
     max_rows: int = 200
     query_timeout_s: float = 10.0
+    sql_candidates: int = 3  # self-consistency draws on the custom-SQL route
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -38,4 +39,5 @@ class Settings:
             warehouse_path=Path(env.get("WAREHOUSE_PATH", str(default.warehouse_path))),
             max_rows=int(env.get("MAX_ROWS", default.max_rows)),
             query_timeout_s=float(env.get("QUERY_TIMEOUT_S", default.query_timeout_s)),
+            sql_candidates=int(env.get("SQL_CANDIDATES", default.sql_candidates)),
         )

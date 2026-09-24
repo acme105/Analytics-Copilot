@@ -60,7 +60,9 @@ class FakeLLM:
         self.replies = [r if isinstance(r, str) else json.dumps(r) for r in replies]
         self.calls: list[tuple[Role, list[Message]]] = []
 
-    async def complete(self, role: Role, messages: list[Message]) -> Completion:
+    async def complete(
+        self, role: Role, messages: list[Message], temperature: float = 0.0, sample: int = 0
+    ) -> Completion:
         self.calls.append((role, messages))
         if not self.replies:
             raise AssertionError(f"FakeLLM ran out of replies on call {len(self.calls)}")
@@ -71,8 +73,8 @@ class FakeLLM:
 def make_pipeline(tiny_warehouse: Path):
     """Factory: a pipeline over the tiny warehouse driven by the given scripted replies."""
 
-    def build(replies: list[str | dict]) -> tuple[AskPipeline, FakeLLM]:
-        settings = Settings(warehouse_path=tiny_warehouse, max_rows=50)
+    def build(replies: list[str | dict], **overrides: object) -> tuple[AskPipeline, FakeLLM]:
+        settings = Settings(warehouse_path=tiny_warehouse, max_rows=50, **overrides)
         llm = FakeLLM(replies)
         pipeline = AskPipeline.from_settings(settings, llm=llm)
         return pipeline, llm

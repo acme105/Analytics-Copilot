@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from analytics_copilot.charts import ChartSpec
 
-Mode = Literal["raw_schema", "semantic", "semantic_rag"]
+Mode = Literal["raw_schema", "semantic", "semantic_rag", "semantic_plan"]
 Status = Literal["ok", "refused", "error"]
 
 
@@ -52,7 +52,7 @@ class AskRequest(BaseModel):
     """Body of POST /ask."""
 
     question: str = Field(min_length=3, max_length=500)
-    mode: Mode = "semantic_rag"
+    mode: Mode = "semantic_plan"
 
 
 class MetricDefinition(BaseModel):
@@ -112,6 +112,9 @@ class AskResponse(BaseModel):
     row_count: int = 0
     truncated: bool = False
     repaired: bool = False
+    route: Literal["metric_plan", "custom_sql"] | None = None  # semantic_plan mode only
+    plan: dict[str, Any] | None = None
+    sql_candidates: int = 0
     grounding: Grounding | None = None
     latency_ms: dict[str, float] = {}
     usage: UsageReport = UsageReport()

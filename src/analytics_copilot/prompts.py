@@ -3,7 +3,9 @@
 The three generation modes differ only in the context the SQL model sees:
     raw_schema    staging-table DDL only, no business definitions;
     semantic      mart DDL plus every governed metric definition and dimension;
-    semantic_rag  mart DDL plus only the retrieved metrics and similar example queries.
+    semantic_rag  mart DDL plus only the retrieved metrics and similar example queries;
+    semantic_plan the planner (planner.py) first; when a question needs custom SQL, the
+                  semantic_rag context plus every dimension's allowed values.
 """
 
 from __future__ import annotations
@@ -127,6 +129,7 @@ def sql_messages(
     layer: SemanticLayer,
     metric_names: list[str],
     examples: list[Example],
+    dimension_values: dict[str, list[str]] | None = None,
 ) -> list[Message]:
     """Messages for SQL generation in ``mode``.
 
@@ -144,7 +147,12 @@ def sql_messages(
             "Governed metrics:\n" + _metric_block(layer, metric_names),
             "Dimensions:\n" + _dimension_block(layer),
         ]
-        if mode == "semantic_rag" and examples:
+        if dimension_values:
+            parts.append(
+                "Dimension values (use exactly these spellings in filters):\n"
+                + "\n".join(f"- {d}: {', '.join(v)}" for d, v in dimension_values.items())
+            )
+        if mode in ("semantic_rag", "semantic_plan") and examples:
             parts.append(
                 "Example questions with correct SQL:\n"
                 + "\n\n".join(f"Q: {e.question}\nSQL: {e.sql.strip()}" for e in examples)

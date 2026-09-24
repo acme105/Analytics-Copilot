@@ -126,7 +126,7 @@ async def test_raw_mode_cannot_query_marts(make_pipeline) -> None:
 async def test_unreachable_llm_provider_is_a_clean_error(make_pipeline) -> None:
     pipeline, llm = make_pipeline([])
 
-    async def unreachable(role, messages):
+    async def unreachable(role, messages, temperature=0.0, sample=0):
         raise openai.APIConnectionError(request=httpx.Request("POST", "http://llm"))
 
     llm.complete = unreachable

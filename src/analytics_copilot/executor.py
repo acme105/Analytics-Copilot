@@ -85,3 +85,23 @@ def describe_tables(path: Path, prefixes: tuple[str, ...]) -> dict[str, dict[str
         if table.startswith(prefixes):
             schema.setdefault(table, {})[column] = data_type
     return schema
+
+
+def dimension_values(path: Path, columns: list[str]) -> dict[str, list[str]]:
+    """Distinct values of each column across the fct_* tables that have it, sorted.
+
+    Shown to the model so it filters on real values ('SP', 'credit_card') rather than
+    guessing ('São Paulo', 'card'): value grounding, as in CHESS.
+    """
+    schema = describe_tables(path, ("fct_",))
+    con = connect_read_only(path)
+    try:
+        values: dict[str, list[str]] = {}
+        for column in columns:
+            tables = [t for t, cols in schema.items() if column in cols]
+            union = " UNION ".join(f"SELECT DISTINCT {column} AS v FROM {t}" for t in tables)
+            rows = con.execute(f"SELECT v FROM ({union}) WHERE v IS NOT NULL ORDER BY v").fetchall()
+            values[column] = [str(r[0]) for r in rows]
+        return values
+    finally:
+        con.close()
