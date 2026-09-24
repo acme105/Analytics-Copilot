@@ -1,7 +1,7 @@
 DATASET := olistbr/brazilian-ecommerce
 RAW_DIR := data/raw
 
-.PHONY: install data profile warehouse lint test
+.PHONY: install data profile warehouse serve lint test
 
 install:
 	uv sync
@@ -27,6 +27,10 @@ profile: data
 ## Build warehouse/olist.duckdb (raw -> staging views -> mart tables).
 warehouse: data
 	uv run python -m analytics_copilot.warehouse --data-dir $(RAW_DIR)
+
+## Run the insight API on http://localhost:8080 (LLM settings from .env if present).
+serve:
+	uv run $(if $(wildcard .env),--env-file .env,) uvicorn analytics_copilot.api:app --port 8080 --reload
 
 lint:
 	uv run ruff check .
