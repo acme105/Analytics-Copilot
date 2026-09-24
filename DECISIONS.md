@@ -138,3 +138,16 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - **Change:** one rule added to the `semantic` and `semantic_rag` prompts: if the question doesn't say which date to use, use the metric's date field (purchase date) and state it in `assumptions.notes`. `raw_schema` doesn't get it; it stays the no-business-knowledge baseline.
 - **Why this isn't tuning on the test set:** it applies D6, a decision made in Phase 1, and it was added before any golden question existed. The smoke test showed the need: `raw_schema` answered "delivered orders in 2017" with 40,930 by delivery date, while the governed answer is 43,426 by purchase date.
+
+## D22. Signed-off decisions are sent to the SQL model as explicit rules, from the semantic layer
+
+- **Problem (smoke test, 2026-09-24):** `semantic` mode had the metric definitions but still counted canceled orders, skipped the delivered-only filter and ignored the default window. The decisions lived in DECISIONS.md and were only implied inside 18 metric definitions, so a 3B model missed them.
+- **Options:** hard-code rules in the prompt; fine-tune; put the rules in the semantic layer and generate the prompt from it.
+- **Chosen:** `semantic/metrics.yaml` now holds `business_rules` (valid orders only, delivered orders for delivery metrics, reviewed orders for review metrics, purchase date for everything, the default window, people not order ids, BRL excluding freight) and column descriptions for the key mart columns. Semantic prompts render them, with the rules and a 3-point self-check placed **last**, where small models attend most. Each metric now lists "required filters" on its own line.
+- **Also changed:**
+  - **All modes:** generic SQL tips (use date ranges, never partial date strings; take each column from a table in FROM or JOIN). These fixed plain SQL errors and carry no business knowledge, so `raw_schema` stays a fair baseline.
+  - **Summary:** English number format. The model had written "2,96 million", which the grounding check read as 296 million.
+- **Guardrails:**
+  - Tests assert that every business rule reaches the semantic prompts and none reaches `raw_schema`, and that every column note names a real column.
+  - The fixes came from the 6 smoke questions, so those questions (and near-copies) are excluded from the golden set. Otherwise the eval would reward prompt tuning on the same questions.
+- **Trade-off:** the semantic prompt grows by about 500 tokens (to about 2,600 in `semantic` and 1,800 in `semantic_rag`).
