@@ -116,12 +116,15 @@ def _ms(value: float | None) -> str:
     return "–" if value is None else f"{value / 1000:.1f}s"
 
 
-def to_markdown(run: dict[str, Any], summary: dict[str, Any]) -> str:
-    """Human-readable report: run details, headline table and breakdowns."""
+SET_TITLES = {"dev": "development set (golden.yaml)", "holdout": "held-out set (holdout.yaml)"}
+
+
+def to_markdown(run: dict[str, Any], summary: dict[str, Any], split: str = "dev") -> str:
+    """Human-readable report for one eval set: run details, headline table and breakdowns."""
     scope = "verified_only" if summary["verified_only"] else "all_items"
     metrics = summary[scope]
     lines = [
-        f"# Eval results: {run['model']} ({run['timestamp_utc']})",
+        f"# Eval results, {SET_TITLES.get(split, split)}: {run['model']} ({run['timestamp_utc']})",
         "",
         f"- Provider: {run['provider']}; quantisation: {run['quantisation']}; "
         f"hardware: {run['hardware']}",

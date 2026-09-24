@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from analytics_copilot.config import Settings
-from analytics_copilot.evals.golden import GoldenItem, load_golden
+from analytics_copilot.evals.golden import GoldenItem, load_all
 from analytics_copilot.evals.report import MODES, summarise, to_markdown
 from analytics_copilot.evals.scoring import classify_failure, compare_results
 from analytics_copilot.executor import QueryResult, run_query
@@ -127,6 +127,7 @@ def score_item(
         "category": item.category,
         "expected": item.expected_behaviour,
         "verified": item.verified,
+        "split": item.split,
         "ordered": item.ordered,
         "status": response.status,
         "outcome": outcome,
@@ -189,8 +190,10 @@ async def run_eval(
 def write_results(
     run: dict[str, Any], records: list[dict], out_dir: Path
 ) -> tuple[Path, Path, dict[str, Any]]:
-    """Write the JSON (run, summary, records) and markdown report; return paths and summary."""
-    summary = summarise(records)
+    """Write the JSON (run, summary per split, records) and a markdown report with one
+    section per split (dev and held-out are never mixed, D41). Returns paths and summary."""
+    splits = [s for s in ("dev", "holdout") if any(r.get("split", "dev") == s for r in records)]
+    summary = {s: summarise([r for r in records if r.get("split", "dev") == s]) for s in splits}
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"eval_{run['model'].split('/')[-1]}_{run['timestamp_utc']}"
     json_path = out_dir / f"{stem}.json"
@@ -198,7 +201,7 @@ def write_results(
     payload = {"run": run, "summary": summary, "records": records}
     # default=str: never lose a finished run to one unusual value in a model's result.
     json_path.write_text(json.dumps(payload, indent=2, default=str))
-    md_path.write_text(to_markdown(run, summary))
+    md_path.write_text("\n".join(to_markdown(run, summary[s], s) for s in splits))
     return json_path, md_path, summary
 
 
@@ -228,7 +231,7 @@ def main() -> None:
     if not args.no_cache:
         llm = CachingLLM(llm, args.cache, settings.sql_model)
     pipeline = AskPipeline.from_settings(settings, llm=llm)
-    items = load_golden()[: args.limit]
+    items = load_all()[: args.limit]
     modes: list[Mode] = list(MODES) if args.mode == "all" else [args.mode]
 
     gold = asyncio.run(run_gold(items, settings.warehouse_path))

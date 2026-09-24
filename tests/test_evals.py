@@ -182,9 +182,9 @@ async def test_runner_scores_answers_refusals_and_caches_replies(
     run = {"timestamp_utc": "T", "provider": "p", "model": "org/m", "quantisation": "q",
            "hardware": "h", "code_version": "c"}  # fmt: skip
     json_path, md_path, summary = write_results(run, records, tmp_path)
-    assert summary["all_items"]["semantic"]["execution_accuracy"] == 1.0
-    assert summary["all_items"]["semantic"]["correct_refusal_rate"] == 1.0
-    assert summary["verified_only"] is None
+    assert summary["dev"]["all_items"]["semantic"]["execution_accuracy"] == 1.0
+    assert summary["dev"]["all_items"]["semantic"]["correct_refusal_rate"] == 1.0
+    assert summary["dev"]["verified_only"] is None
     assert "Provisional" in md_path.read_text()
     assert json.loads(json_path.read_text())["records"][0]["id"] == "t1"
 
@@ -273,3 +273,12 @@ def test_holdout_set_is_separate_and_not_in_any_prompt_material() -> None:
 async def test_every_holdout_gold_query_runs_and_returns_rows() -> None:
     gold = await run_gold(load_golden(HOLDOUT_PATH), WAREHOUSE)
     assert len(gold) == 34 and all(result.rows for result in gold.values())
+
+
+def test_pivoted_results_are_unpivoted_before_matching() -> None:
+    gold = [(2017, 2.32), (2017, 4.28), (2018, 2.24), (2018, 4.30)]
+    pivot = [["2017-01-01", 2.32, 4.28], ["2018-01-01", 2.24, 4.30]]
+    result = compare_results(gold, pivot, ordered=False)
+    assert result.correct and result.pivoted
+    wrong = [["2017-01-01", 2.32, 9.99], ["2018-01-01", 2.24, 4.30]]
+    assert not compare_results(gold, wrong, ordered=False).correct

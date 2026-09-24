@@ -5,7 +5,9 @@ Matching rules (DECISIONS D20):
 - a predicted column may equal the gold column times 100 (ratio shown as a percentage);
 - row order only matters when the item is ``ordered``;
 - floats match within a relative tolerance of 1e-3;
-- a year may come back as its 1 January date: 2017 equals '2017-01-01' (D39).
+- a year may come back as its 1 January date: 2017 equals '2017-01-01' (D39);
+- a result may be pivoted: groups spread across value columns (late, on_time) are unpivoted
+  into rows before matching (D45).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import combinations
 
 import sqlglot
 from sqlglot import exp
@@ -39,6 +42,7 @@ class MatchResult:
     correct: bool
     reason: str = ""
     scaled_columns: list[int] = field(default_factory=list)
+    pivoted: bool = False
 
 
 def normalise(value: object) -> object:
@@ -112,6 +116,34 @@ def compare_results(
     """Decide whether ``pred_rows`` answers the question the way ``gold_rows`` does."""
     gold = [tuple(normalise(v) for v in row) for row in gold_rows]
     pred = [tuple(normalise(v) for v in row) for row in pred_rows]
+    result = _match(gold, pred, ordered)
+    if result.correct or ordered or not pred or len(pred) >= len(gold):
+        return result
+    for melted in _unpivots(pred, len(gold)):
+        pivoted = _match(gold, melted, ordered)
+        if pivoted.correct:
+            pivoted.pivoted = True
+            return pivoted
+    return result
+
+
+def _unpivots(pred: list[tuple], gold_rows: int):
+    """Yield the result with 2-4 numeric columns melted into rows, when that gives exactly
+    the gold row count (e.g. year, late, on_time -> year, value on two rows per year)."""
+    width = len(pred[0])
+    numeric = [
+        k for k in range(width) if all(isinstance(r[k], float) or r[k] is None for r in pred)
+    ]
+    for size in range(2, min(4, len(numeric)) + 1):
+        if len(pred) * size != gold_rows:
+            continue
+        for combo in combinations(numeric, size):
+            keep = [k for k in range(width) if k not in combo]
+            yield [tuple(r[k] for k in keep) + (r[c],) for r in pred for c in combo]
+
+
+def _match(gold: list[tuple], pred: list[tuple], ordered: bool) -> MatchResult:
+    """Match normalised rows under the D20 rules."""
     if len(gold) != len(pred):
         return MatchResult(False, f"row count: gold {len(gold)}, predicted {len(pred)}")
     if not gold:
