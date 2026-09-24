@@ -36,6 +36,10 @@ SQL_RULES = """Write one DuckDB SELECT query that answers the question.
 
 Rules:
 - Use only the tables and columns listed. Never invent columns.
+- Every column must belong to a table in your FROM or JOIN. To use a column from another
+  table, join on the shared key (for example order_id).
+- Filter dates with ranges: col >= DATE '2018-03-01' AND col < DATE '2018-04-01'. Never
+  compare a date with a partial string such as '2018-03'.
 - One statement only, read-only. Always end with LIMIT (at most 200).
 - Give every computed column a short snake_case alias.
 - For monthly or weekly trends use DATE_TRUNC('month', <date column>) AS period.
@@ -47,39 +51,61 @@ Reply with only a JSON object:
                  "notes": ["anything a reader should know"]},
  "chart_hint": "number" | "line" | "bar" | "table"}"""
 
-SEMANTIC_RULES = """Business rules:
-- Unless the question gives dates, use the default window {start} to {end} (end exclusive)
-  on the metric's date field.
-- Compute metrics exactly as defined below: same view, expression and required filters.
-- If the question does not say which date to use (e.g. "delivered orders in 2017"), use the
-  metric's date field (purchase date) and say so in assumptions.notes.
-- Put each metric you use in metrics_used by its name."""
+BUSINESS_RULES_HEADER = """Business rules. Apply every one, even if the question does not ask:
+- The default window is purchased_at >= DATE '{start}' AND purchased_at < DATE '{end}'.
+- If the question does not say which date to use (e.g. "delivered orders in 2017"), use
+  purchased_at and say so in assumptions.notes."""
+
+FINAL_CHECK = """Before you reply, check your SQL:
+1. Every metric you use has its required filters in the WHERE clause.
+2. purchased_at is limited to the default window (or the part of the asked period inside it).
+3. Dates are filtered and grouped on purchased_at."""
 
 SUMMARY_SYSTEM = """You summarise query results for a business reader.
 
 Write 2 to 3 plain sentences that answer the question. Use only numbers that appear in the
 rows, or that follow directly from them (a total, a difference, a percentage). Round sensibly
-and keep units (R$, %, days). Do not speculate about causes. Reply with the summary only."""
+and keep units (R$, %, days). Do not speculate about causes.
+
+Write numbers in English format: a dot for decimals and commas for thousands, e.g.
+R$ 2,960,326 or R$ 2.96 million, 7,168 orders, 6.8%. Never use a comma as the decimal
+separator. Ratios between 0 and 1 are shown as percentages (0.068 -> 6.8%).
+Reply with the summary only."""
 
 
-def _ddl(tables: dict[str, dict[str, str]]) -> str:
-    return "\n".join(
-        f"TABLE {table} ({', '.join(f'{col} {typ}' for col, typ in cols.items())})"
-        for table, cols in tables.items()
-    )
+def _ddl(tables: dict[str, dict[str, str]], notes: dict[str, dict[str, str]]) -> str:
+    """Table definitions, one column per line, with a comment where ``notes`` has one."""
+    blocks = []
+    for table, cols in tables.items():
+        table_notes = notes.get(table, {})
+        items = list(cols.items())
+        lines = []
+        for i, (col, typ) in enumerate(items):
+            line = f"  {col} {typ}" + ("," if i < len(items) - 1 else "")
+            if col in table_notes:
+                line += f"  -- {table_notes[col]}"
+            lines.append(line)
+        blocks.append(f"TABLE {table} (\n" + "\n".join(lines) + "\n)")
+    return "\n".join(blocks)
 
 
 def _metric_block(layer: SemanticLayer, names: list[str]) -> str:
     lines = []
     for name in names:
         m = layer.metrics[name]
-        filters = " AND ".join(m.required_filters) or "none"
         lines.append(
             f"- {name} ({m.label}, {m.unit}): {m.description}\n"
-            f"  SQL: SELECT {m.expression} FROM {m.view} WHERE {filters}; "
-            f"date field: {m.date_field}"
+            f"    expression: {m.expression}   table: {m.view}\n"
+            f"    required filters: {' AND '.join(m.required_filters) or 'none'}\n"
+            f"    date field: {m.date_field}"
         )
     return "\n".join(lines)
+
+
+def _business_rules(layer: SemanticLayer) -> str:
+    window = layer.default_window
+    header = BUSINESS_RULES_HEADER.format(start=window.start, end=window.end)
+    return header + "\n" + "\n".join(f"- {rule}" for rule in layer.business_rules)
 
 
 def _dimension_block(layer: SemanticLayer) -> str:
@@ -107,17 +133,24 @@ def sql_messages(
     ``tables`` is the schema for the mode. ``metric_names`` and ``examples`` are
     what retrieval returned (all metrics in ``semantic`` mode; unused in ``raw_schema``).
     """
-    parts = [SQL_RULES, "Tables:\n" + _ddl(tables)]
-    if mode != "raw_schema":
-        window = layer.default_window
-        parts.append(SEMANTIC_RULES.format(start=window.start, end=window.end))
-        parts.append("Governed metrics:\n" + _metric_block(layer, metric_names))
-        parts.append("Dimensions:\n" + _dimension_block(layer))
-    if mode == "semantic_rag" and examples:
-        parts.append(
-            "Example questions with correct SQL:\n"
-            + "\n\n".join(f"Q: {e.question}\nSQL: {e.sql.strip()}" for e in examples)
-        )
+    if mode == "raw_schema":
+        # Baseline: generic SQL rules and bare table definitions, no business knowledge.
+        parts = [SQL_RULES, "Tables:\n" + _ddl(tables, notes={})]
+    else:
+        notes = {name: view.columns for name, view in layer.views.items()}
+        parts = [
+            SQL_RULES,
+            "Tables:\n" + _ddl(tables, notes),
+            "Governed metrics:\n" + _metric_block(layer, metric_names),
+            "Dimensions:\n" + _dimension_block(layer),
+        ]
+        if mode == "semantic_rag" and examples:
+            parts.append(
+                "Example questions with correct SQL:\n"
+                + "\n\n".join(f"Q: {e.question}\nSQL: {e.sql.strip()}" for e in examples)
+            )
+        # Rules and checklist last: small models follow the most recent instructions best.
+        parts += [_business_rules(layer), FINAL_CHECK]
     return [
         {"role": "system", "content": "\n\n".join(parts)},
         {"role": "user", "content": question},
