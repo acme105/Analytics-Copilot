@@ -174,3 +174,13 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 
 - **Checked because:** 2018 looked like "almost everyone is new" (51,668 of 52,337 buyers).
 - **Evidence:** `customer_id` is unique per order (99,441 ids, never more than 1 order each). Zip prefix, city and state are shared locations: 11,898 zip + city pairs hold more than one person. `customer_unique_id` has 96,096 values, and 93,099 of those people (96.9%) ordered exactly once. So the "all new" pattern is a real property of the data, not a wrong key.
+
+## D26. First eval run: failure while saving, replay, and fixes
+
+- **What happened:** the Kaggle notebook answered all 360 questions in 56.6 minutes, then crashed in the save cell. One model query returned an INTERVAL (Python `timedelta`), which JSON can't encode.
+- **Recovery:** the recorded replies were replayed locally with the exact code version that ran (292c5d0) and scored against the current gold. 4 `raw_schema` answers depended on a repair reply that couldn't be replayed, so they are excluded and listed in the results file. 55 summaries differed only in row order and don't affect correctness.
+- **Fixes:**
+  - the executor now turns INTERVAL into days;
+  - the results writer falls back to text for any unusual value, so a finished run can't be lost at the save step;
+  - a fresh run's cache only records (`replay=False`). In this run the scope-check reply was reused across modes, which excluded most answers from the latency statistics.
+- **Known limitation found:** in `raw_schema` the failure label is almost always "wrong join", because that mode queries `stg_*` tables and gold uses `fct_*` marts. For that mode the label doesn't show the real cause yet.
