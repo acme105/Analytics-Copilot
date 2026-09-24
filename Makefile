@@ -2,10 +2,11 @@ DATASET := olistbr/brazilian-ecommerce
 KAGGLE_USER := acme105
 CODE_DATASET := $(KAGGLE_USER)/olist-copilot-code
 SMOKE_KERNEL := $(KAGGLE_USER)/olist-copilot-smoke
+EVAL_KERNEL := $(KAGGLE_USER)/olist-copilot-eval
 BUILD := build/kaggle-code
 RAW_DIR := data/raw
 
-.PHONY: install data profile warehouse serve lint test kaggle-code kaggle-smoke kaggle-status kaggle-results
+.PHONY: install data profile warehouse serve eval lint test kaggle-code kaggle-smoke kaggle-status kaggle-results kaggle-eval kaggle-eval-status kaggle-eval-results
 
 install:
 	uv sync
@@ -36,6 +37,10 @@ warehouse: data
 serve:
 	uv run $(if $(wildcard .env),--env-file .env,) uvicorn analytics_copilot.api:app --port 8080 --reload
 
+## Run the golden eval against the LLM in .env, e.g. make eval ARGS="--limit 10 --mode semantic_rag".
+eval:
+	uv run $(if $(wildcard .env),--env-file .env,) python -m analytics_copilot.evals.runner $(ARGS)
+
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
@@ -45,9 +50,9 @@ test:
 
 ## Upload the committed code (HEAD) to the private Kaggle dataset the notebooks attach.
 kaggle-code:
-	@git diff --quiet HEAD -- src semantic || echo "WARNING: uncommitted changes are NOT uploaded (git archive HEAD)"
+	@git diff --quiet HEAD -- src semantic evals || echo "WARNING: uncommitted changes are NOT uploaded (git archive HEAD)"
 	rm -rf $(BUILD) && mkdir -p $(BUILD)/stage
-	git archive HEAD src semantic pyproject.toml | tar -x -C $(BUILD)/stage
+	git archive HEAD src semantic evals pyproject.toml | tar -x -C $(BUILD)/stage
 	git rev-parse --short HEAD > $(BUILD)/stage/VERSION
 	COPYFILE_DISABLE=1 tar -czf $(BUILD)/copilot_code.tar.gz -C $(BUILD)/stage .  # no macOS ._ files
 	rm -rf $(BUILD)/stage
@@ -69,3 +74,16 @@ kaggle-status:
 kaggle-results:
 	mkdir -p results/kaggle
 	uv run kaggle kernels output $(SMOKE_KERNEL) -p results/kaggle
+
+## Run the eval notebook on a Kaggle T4, then poll with `make kaggle-eval-status`.
+kaggle-eval:
+	uv run kaggle kernels push -p kaggle/eval --accelerator NvidiaTeslaT4
+
+kaggle-eval-status:
+	uv run kaggle kernels status $(EVAL_KERNEL)
+
+## Download the eval notebook's outputs and copy the result files into results/.
+kaggle-eval-results:
+	rm -rf results/kaggle-eval && mkdir -p results/kaggle-eval
+	uv run kaggle kernels output $(EVAL_KERNEL) -p results/kaggle-eval
+	cp results/kaggle-eval/results/eval_* results/
