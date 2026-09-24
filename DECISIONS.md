@@ -243,3 +243,18 @@ The other drafted definitions (valid orders, delivery metrics grouped by purchas
 - 120 answers in 9.0 minutes at concurrency 4 (the sequential baseline run took 56.6).
 - Verified items (40): **85.0%** (34/40) vs semantic_rag 75.0%. All 105 answerable, provisional: **71.4%** vs 60.0%. Medium rose from 29/45 to 39/45; easy dipped (verified 15/20 vs 17/20); hard went from 5/20 to 6/20. Refusals 14/15, no false refusals, no errors.
 - p95 latency is 63.5s: the custom-SQL route (up to about 9 calls) queued behind other questions. The golden set is a development set (D29).
+
+## D36. semantic_plan with the D34 fixes (code 8e53e7c): no accuracy change; where the errors are now
+
+- **Result:** 120 answers in 8.9 min. Verified: 85.0% (34/40), the same as before the fixes. All 105 (provisional): 70.5% (74/105) vs 71.4%, within noise (one medium item, m019, flipped). Refusals 14/15, 1 answer errored, 2.0% parse failures.
+- **The fixes did their narrow job:** h003 no longer times out. But its answer is still wrong, so the rule gate removed the blow-up without making the model reason correctly.
+- **By route:**
+  - metric plan: 85 of 105 answerable questions, **66/85 correct (78%)**, p50 7.7s;
+  - custom SQL: 20 questions, **8/20 (40%)**, p50 54.5s, p95 97.4s.
+
+  The custom route is slow and still weak.
+- **The planner's remaining errors are mostly dates and forcing a metric that doesn't fit:**
+  - off-by-one exclusive ends: e002 ended the first half on 2018-06-30 and lost 30 June;
+  - periods invented for questions that name none: e005 and e015;
+  - share-of used where a filter was meant: e017;
+  - an unrelated metric forced when none fits: e019 (canceled count) and h015 (median, sorted the wrong way).
