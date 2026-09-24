@@ -18,9 +18,10 @@ items:
     question: How many orders were placed in 2017?
     difficulty: easy
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT COUNT(*) AS orders FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
 
   - id: e002
     question: How much GMV did Olist generate in the first half of 2018?
@@ -175,6 +176,7 @@ items:
     question: How many orders were canceled or unavailable in 2018?
     difficulty: easy
     category: cancellations
+    verified: true
     gold_sql: |
       SELECT COUNT(*) AS canceled_orders FROM fct_orders
       WHERE is_canceled
@@ -246,9 +248,10 @@ items:
     question: How many orders were placed on Black Friday 2017, 24 November?
     difficulty: easy
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT COUNT(*) AS orders FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2017-11-24' AND purchased_at < DATE '2017-11-25'
+      WHERE purchased_at >= DATE '2017-11-24' AND purchased_at < DATE '2017-11-25'
 
   - id: e028
     question: What was the late delivery rate for orders placed in 2018?
@@ -289,9 +292,10 @@ items:
     question: How many orders were placed in total over the analysis window?
     difficulty: easy
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT COUNT(*) AS orders FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
 
   - id: e033
     question: What was the average review score for customers in Rio de Janeiro state (RJ)?
@@ -382,9 +386,10 @@ items:
     difficulty: medium
     category: orders
     ordered: true
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT customer_state, COUNT(*) AS orders FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
       GROUP BY 1 ORDER BY orders DESC LIMIT 10
 
   - id: m003
@@ -413,10 +418,11 @@ items:
     question: How many orders were placed each week in July 2018?
     difficulty: medium
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT CAST(DATE_TRUNC('week', purchased_at) AS DATE) AS period, COUNT(*) AS orders
       FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2018-07-01' AND purchased_at < DATE '2018-08-01'
+      WHERE purchased_at >= DATE '2018-07-01' AND purchased_at < DATE '2018-08-01'
       GROUP BY 1
 
   - id: m006
@@ -584,9 +590,10 @@ items:
     question: How many orders were placed on each day from 1 to 7 March 2018?
     difficulty: medium
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT CAST(purchased_at AS DATE) AS day, COUNT(*) AS orders FROM fct_orders
-      WHERE is_valid AND purchased_at >= DATE '2018-03-01' AND purchased_at < DATE '2018-03-08'
+      WHERE purchased_at >= DATE '2018-03-01' AND purchased_at < DATE '2018-03-08'
       GROUP BY 1
 
   - id: m022
@@ -659,10 +666,11 @@ items:
     question: How many orders were placed in Q1 2017 compared with Q1 2018?
     difficulty: medium
     category: orders
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period, COUNT(*) AS orders
       FROM fct_orders
-      WHERE is_valid AND (
+      WHERE (
           (purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2017-04-01')
           OR (purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-04-01'))
       GROUP BY 1
@@ -997,11 +1005,11 @@ items:
     question: How many customers placed 3 or more orders during the analysis window?
     difficulty: hard
     category: customers
+    notes: "\"Placed\" counts every order whatever its status (D24)."
     gold_sql: |
       SELECT COUNT(*) AS customers FROM (
           SELECT customer_unique_id FROM fct_orders
-          WHERE is_valid
-            AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
           GROUP BY 1 HAVING COUNT(*) >= 3
       )
 
