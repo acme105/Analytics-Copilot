@@ -5,7 +5,15 @@ from datetime import date
 import pytest
 
 from analytics_copilot.evals.golden import load_golden
-from analytics_copilot.planner import MetricPlan, PlanError, plan_messages, plan_to_sql
+from analytics_copilot.planner import (
+    MetricPlan,
+    Period,
+    PlanError,
+    normalise_plan,
+    plan_messages,
+    plan_problems,
+    plan_to_sql,
+)
 from analytics_copilot.semantic import MetricQueryError, compile_metric
 from analytics_copilot.sql_checks import result_problems, rule_violations
 
@@ -178,3 +186,62 @@ def test_joining_an_aggregate_to_a_fact_table_is_fine() -> None:
         f"ON top.customer_state = o.customer_state WHERE o.is_delivered AND o.{WINDOW} GROUP BY 1"
     )
     assert not any("multiplies rows" in v for v in rule_violations(top, "q", [], LAYER))
+
+
+# --- named periods and plan checks (D38) ---
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ({"year": 2018, "half": 1}, (date(2018, 1, 1), date(2018, 7, 1))),
+        ({"year": 2017, "quarter": 4}, (date(2017, 10, 1), date(2018, 1, 1))),
+        ({"year": 2017, "month": 12}, (date(2017, 12, 1), date(2018, 1, 1))),
+        ({"year": 2017}, (date(2017, 1, 1), date(2018, 1, 1))),
+        ({"first_day": "2017-11-20", "last_day": "2017-11-26"},
+         (date(2017, 11, 20), date(2017, 11, 27))),
+    ],
+)  # fmt: skip
+def test_named_periods_become_exact_half_open_dates(spec: dict, expected: tuple) -> None:
+    assert Period.model_validate(spec).to_range() == expected
+
+
+def test_incomplete_periods_are_rejected() -> None:
+    with pytest.raises(PlanError):
+        Period(half=1).to_range()
+
+
+def test_placed_orders_use_orders_placed_and_comparisons_keep_every_period() -> None:
+    plan = MetricPlan(kind="metric", metric="orders", group_by=["customer_state"])
+    assert normalise_plan(plan, "Which states placed the most orders?").metric == "orders_placed"
+    two = MetricPlan(kind="metric", metric="aov", periods=[Period(year=2017), Period(year=2018)],
+                     sort="desc", limit=1)  # fmt: skip
+    assert normalise_plan(two, "AOV in 2017 vs 2018").limit is None
+
+
+@pytest.mark.parametrize(
+    ("plan", "question", "expected"),
+    [
+        ({"metric": "late_delivery_rate", "period": {"year": 2018}},
+         "What share of delivered orders arrived late overall?", "names no period"),
+        ({"metric": "new_customers", "group_by": ["customer_state"]},
+         "Which 5 states brought in the most new customers in 2018?", "names a period"),
+        ({"metric": "late_delivery_rate", "filters": {"customer_state": ["BA"]},
+          "period": {"first_day": "2017-11-20", "last_day": "2017-11-26"}},
+         "Late delivery rate in Black Friday week 2017?", "doesn't mention customer_state = BA"),
+        ({"metric": "gmv", "group_by": ["customer_state"]}, "What was GMV in 2017?",
+         "breakdown by customer_state"),
+        ({"metric": "gmv", "periods": [{"year": 2017}, {"year": 2018}]},
+         "How much did GMV grow from 2017 to 2018?", "custom SQL"),
+        ({"metric": "gmv"}, "Which month had the highest GMV?", "needs that grain"),
+    ],
+)  # fmt: skip
+def test_plan_checks_catch_misreadings(plan: dict, question: str, expected: str) -> None:
+    problems = plan_problems(MetricPlan(kind="metric", **plan), question)
+    assert any(expected in p for p in problems), problems
+
+
+def test_plan_checks_accept_state_names_and_named_values() -> None:
+    plan = MetricPlan(kind="metric", metric="orders", filters={"customer_state": ["SP"]},
+                      period=Period(year=2018))  # fmt: skip
+    assert plan_problems(plan, "How many orders came from São Paulo state in 2018?") == []

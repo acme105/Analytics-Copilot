@@ -37,7 +37,14 @@ from analytics_copilot.llm import (
     Usage,
     complete_json,
 )
-from analytics_copilot.planner import MetricPlan, PlanError, plan_messages, plan_to_sql
+from analytics_copilot.planner import (
+    MetricPlan,
+    PlanError,
+    normalise_plan,
+    plan_messages,
+    plan_problems,
+    plan_to_sql,
+)
 from analytics_copilot.prompts import (
     repair_messages,
     scope_messages,
@@ -277,26 +284,31 @@ class AskPipeline:
     async def _metric_plan_route(
         self, question: str, response: AskResponse, timer: StageTimer, usage: Usage
     ) -> tuple[ValidatedSQL, QueryResult, SQLGeneration] | None:
-        """Ask for a plan and compile it. None means: use custom SQL instead."""
+        """Ask for a plan, check it against the question, compile it. None means: use
+        custom SQL instead. Problems found by the checks or the compiler get one repair."""
         messages = plan_messages(question, self.layer, self.dimension_values)
-        with timer.stage("plan"):
-            plan = await complete_json(self.llm, "sql", messages, MetricPlan, usage)
-        if plan.kind != "metric":
-            response.plan = plan.model_dump(mode="json")
-            return None
-        try:
-            sql = plan_to_sql(self.layer, plan)
-        except PlanError as error:
-            # One chance to fix an invalid plan (unknown metric, bad sort, ...).
+        plan: MetricPlan | None = None
+        sql: str | None = None
+        for attempt in range(2):
             with timer.stage("plan"):
-                retry = repair_messages(messages, plan.model_dump_json(), str(error))
-                plan = await complete_json(self.llm, "sql", retry, MetricPlan, usage)
+                plan = await complete_json(self.llm, "sql", messages, MetricPlan, usage)
+            if plan.kind != "metric":
+                break
+            plan = normalise_plan(plan, question)
+            # Question checks only on the first attempt: after one repair, trust the model.
+            problems = plan_problems(plan, question) if attempt == 0 else []
             try:
-                sql = plan_to_sql(self.layer, plan) if plan.kind == "metric" else None
-            except PlanError:
+                sql = plan_to_sql(self.layer, plan)
+            except PlanError as error:
                 sql = None
-        response.plan = plan.model_dump(mode="json")
-        if sql is None:
+                problems.append(str(error))
+            if not problems:
+                break
+            if attempt == 0:
+                feedback = "Fix the plan: " + " ".join(problems)
+                messages = repair_messages(messages, plan.model_dump_json(), feedback)
+        response.plan = plan.model_dump(mode="json") if plan else None
+        if plan is None or plan.kind != "metric" or sql is None:
             return None
         allowed = {
             t: {c.lower() for c in cols} for t, cols in self.schemas["semantic_plan"].items()
@@ -317,10 +329,11 @@ class AskPipeline:
         metric = self.layer.metrics[plan.metric or ""]
         filters = [*metric.required_filters]
         filters += [f"{dim} in {', '.join(values)}" for dim, values in plan.filters.items()]
-        if plan.periods:
-            filters += [f"periods: {', '.join(f'{p.start} to {p.end}' for p in plan.periods)}"]
-        elif plan.start or plan.end:
-            filters.append(f"period: {plan.start or 'window start'} to {plan.end or 'window end'}")
+        ranges = [p.to_range() for p in plan.periods] or (
+            [plan.period.to_range()] if plan.period else []
+        )
+        if ranges:
+            filters.append("period: " + ", ".join(f"{s} to {e} (end exclusive)" for s, e in ranges))
         if plan.share_of:
             filters += [f"share of {dim} in {', '.join(v)}" for dim, v in plan.share_of.items()]
         hint = "line" if plan.grain else "bar" if (plan.group_by or plan.periods) else "number"

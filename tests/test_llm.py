@@ -53,3 +53,9 @@ def test_assumption_notes_given_as_a_string_become_a_list() -> None:
     )
     assert parsed.assumptions.notes == ["Default window used."]
     assert parsed.assumptions.filters == ["valid"]
+
+
+def test_raw_control_characters_inside_strings_are_tolerated() -> None:
+    # The reply below has a real newline and tab inside the JSON string (m019).
+    reply = '{"sql": "SELECT 1\n\tFROM t"}'
+    assert extract_json(reply) == {"sql": "SELECT 1\n\tFROM t"}

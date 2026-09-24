@@ -110,7 +110,8 @@ def extract_json(text: str) -> dict:
     start, end = candidate.find("{"), candidate.rfind("}")
     if start == -1 or end <= start:
         raise ValueError("no JSON object found in the reply")
-    parsed = json.loads(candidate[start : end + 1])
+    # strict=False: small models sometimes put raw newlines or tabs inside JSON strings.
+    parsed = json.loads(candidate[start : end + 1], strict=False)
     if not isinstance(parsed, dict):
         raise ValueError("reply JSON is not an object")
     return parsed
