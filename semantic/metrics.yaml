@@ -1,0 +1,265 @@
+# Governed semantic layer for the Olist warehouse.
+#
+# Every metric is one aggregate SQL expression over one mart table, plus the filters that
+# always apply to it. `analytics_copilot.semantic` compiles a metric, a time grain and
+# dimensions into a single SELECT. Definitions are drafts until signed off (see DECISIONS.md).
+
+version: 1
+
+# Default analysis window (DECISIONS D5). The end is exclusive.
+default_window:
+  start: "2017-01-01"
+  end: "2018-09-01"
+
+time_grains: [day, week, month]
+
+views:
+  fct_orders:
+    grain: one row per order, every status
+    description: >-
+      Orders with totals, delivery outcome, latest review and the person's order number.
+      Category, seller tier and payment type come from the order's highest-value item or payment.
+  fct_order_items:
+    grain: one row per order item (one unit of one product)
+    description: Item price and freight with the item's own category and seller tier.
+  fct_payments:
+    grain: one row per payment within an order
+    description: Payment type, instalments and value, with the order's dimensions.
+
+dimensions:
+  customer_state:
+    column: customer_state
+    description: Two-letter Brazilian state of the customer's address.
+    synonyms: [state, region, customer region, UF]
+  product_category:
+    column: product_category
+    description: >-
+      English product category. On order-level metrics it is the category of the order's
+      highest-value item.
+    synonyms: [category, product type, department]
+  payment_type:
+    column: payment_type
+    description: >-
+      credit_card, boleto, voucher, debit_card or not_defined. On order-level metrics it is
+      the order's highest-value payment.
+    synonyms: [payment method, how they paid]
+  seller_tier:
+    column: seller_tier
+    description: >-
+      Seller size from GMV in the 3 full months before the order month: top (top 10% of
+      sellers), mid (next 40%), long_tail (the rest), new_or_dormant (no GMV in those months).
+    synonyms: [seller size, seller segment, seller band]
+
+metrics:
+  gmv:
+    label: GMV
+    description: Gross merchandise value. Sum of item prices, excluding freight, on valid orders.
+    view: fct_order_items
+    expression: SUM(price)
+    grain: order item
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [gross merchandise value, sales, revenue, gross sales, turnover]
+
+  orders:
+    label: Orders
+    description: Number of valid orders (not canceled or unavailable).
+    view: fct_orders
+    expression: COUNT(*)
+    grain: order
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: orders
+    synonyms: [order count, number of orders, purchases, order volume]
+
+  aov:
+    label: Average order value
+    description: GMV divided by valid orders that have at least one item. Excludes freight.
+    view: fct_orders
+    expression: SUM(gmv) / COUNT(*)
+    grain: order
+    required_filters: [is_valid, items > 0]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [AOV, average basket, basket size, average order size, average ticket]
+
+  items_per_order:
+    label: Items per order
+    description: Average number of item units per valid order with at least one item.
+    view: fct_orders
+    expression: AVG(items)
+    grain: order
+    required_filters: [is_valid, items > 0]
+    date_field: purchased_at
+    unit: items
+    synonyms: [basket depth, units per order, UPT]
+
+  active_customers:
+    label: Active customers
+    description: Distinct people (customer_unique_id) with at least one valid order.
+    view: fct_orders
+    expression: COUNT(DISTINCT customer_unique_id)
+    grain: order
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: customers
+    synonyms: [customers, buyers, unique customers, purchasing customers]
+
+  new_customers:
+    label: New customers
+    description: >-
+      Distinct people whose first valid order in the full history falls in the period. The data
+      starts in Sep 2016, so "first" means first in this dataset.
+    view: fct_orders
+    expression: COUNT(DISTINCT customer_unique_id)
+    grain: order
+    required_filters: [is_valid, customer_order_number = 1]
+    date_field: purchased_at
+    unit: customers
+    synonyms: [first-time customers, first-time buyers, acquired customers, new buyers]
+
+  repeat_purchase_rate:
+    label: Repeat purchase rate
+    description: >-
+      Share of active customers in the period who are returning: at least one of their orders
+      in the period is their second or later valid order.
+    view: fct_orders
+    expression: >-
+      COUNT(DISTINCT customer_unique_id) FILTER (WHERE customer_order_number > 1)
+      / COUNT(DISTINCT customer_unique_id)
+    grain: order
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [repeat rate, returning customer rate, retention, repurchase rate, loyalty]
+
+  active_sellers:
+    label: Active sellers
+    description: Distinct sellers with at least one item on a valid order.
+    view: fct_order_items
+    expression: COUNT(DISTINCT seller_id)
+    grain: order item
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: sellers
+    synonyms: [sellers, merchants, selling sellers, number of sellers]
+
+  gmv_per_seller:
+    label: GMV per seller
+    description: GMV divided by active sellers.
+    view: fct_order_items
+    expression: SUM(price) / COUNT(DISTINCT seller_id)
+    grain: order item
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: BRL
+    synonyms: [sales per seller, average seller GMV, seller productivity]
+
+  freight_ratio:
+    label: Freight ratio
+    description: Total freight divided by total item price on valid orders.
+    view: fct_order_items
+    expression: SUM(freight_value) / SUM(price)
+    grain: order item
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [shipping cost ratio, freight share, freight to price, shipping as percent of price]
+
+  on_time_delivery_rate:
+    label: On-time delivery rate
+    description: >-
+      Share of delivered orders that arrived on or before the estimated delivery date (compared
+      as calendar dates). Right-censored for late Aug 2018: slow orders were still in transit.
+    view: fct_orders
+    expression: AVG(CASE WHEN is_late THEN 0 ELSE 1 END)
+    grain: order
+    required_filters: [is_delivered]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [on-time rate, OTD, delivery reliability, delivered on time]
+
+  avg_delivery_days:
+    label: Average delivery days
+    description: Average days from purchase to delivery to the customer, for delivered orders.
+    view: fct_orders
+    expression: AVG(delivery_days)
+    grain: order
+    required_filters: [is_delivered]
+    date_field: purchased_at
+    unit: days
+    synonyms: [delivery time, time to deliver, shipping time, lead time, days to deliver]
+
+  late_delivery_rate:
+    label: Late delivery rate
+    description: >-
+      Share of delivered orders that arrived after the estimated delivery date (compared as
+      calendar dates). Equals 1 minus on-time delivery rate.
+    view: fct_orders
+    expression: AVG(CASE WHEN is_late THEN 1 ELSE 0 END)
+    grain: order
+    required_filters: [is_delivered]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [late rate, late deliveries, delayed orders, delay rate]
+
+  cancellation_rate:
+    label: Cancellation rate
+    description: >-
+      Share of all orders with status 'canceled'. 'unavailable' orders are not counted as
+      canceled.
+    view: fct_orders
+    expression: AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END)
+    grain: order
+    required_filters: []
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [cancel rate, cancelled orders, canceled share, order cancellations]
+
+  avg_review_score:
+    label: Average review score
+    description: Average 1-5 review score, using the latest review per order.
+    view: fct_orders
+    expression: AVG(review_score)
+    grain: order
+    required_filters: [review_score IS NOT NULL]
+    date_field: purchased_at
+    unit: score (1-5)
+    synonyms: [rating, average rating, review score, customer satisfaction, CSAT, stars]
+
+  low_review_share:
+    label: Share of 1-2 star reviews
+    description: Share of reviewed orders whose latest review scored 1 or 2.
+    view: fct_orders
+    expression: AVG(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END)
+    grain: order
+    required_filters: [review_score IS NOT NULL]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [bad reviews, negative reviews, detractors, low ratings, 1-2 star share]
+
+  avg_installments:
+    label: Average instalments
+    description: >-
+      Average number of instalments on credit card payments of valid orders. Other payment
+      types are always 1 instalment, so they are excluded.
+    view: fct_payments
+    expression: AVG(installments)
+    grain: payment
+    required_filters: [is_valid, "payment_type = 'credit_card'"]
+    date_field: purchased_at
+    unit: instalments
+    synonyms: [installments, instalments, number of installments, payment plan length]
+
+  credit_card_payment_share:
+    label: Credit card payment share
+    description: Share of payment value on valid orders paid by credit card.
+    view: fct_payments
+    expression: >-
+      SUM(payment_value) FILTER (WHERE payment_type = 'credit_card') / SUM(payment_value)
+    grain: payment
+    required_filters: [is_valid]
+    date_field: purchased_at
+    unit: ratio
+    synonyms: [card share, credit card share, share paid by card, credit card usage]
