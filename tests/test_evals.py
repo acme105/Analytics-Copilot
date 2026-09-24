@@ -16,6 +16,7 @@ from analytics_copilot.evals.golden import (
 from analytics_copilot.evals.report import summarise, to_markdown, wilson_interval
 from analytics_copilot.evals.runner import CachingLLM, run_eval, run_gold, write_results
 from analytics_copilot.evals.scoring import classify_failure, compare_results
+from analytics_copilot.planner import PLAN_EXAMPLES
 
 from .conftest import EXAMPLES, IN_SCOPE, FakeLLM, sql_reply
 
@@ -115,7 +116,7 @@ def test_golden_set_has_the_planned_mix() -> None:
 
 
 def test_golden_questions_are_not_near_copies_of_examples_or_tuning_questions() -> None:
-    others = [e.question for e in EXAMPLES] + SMOKE_QUESTIONS
+    others = [e.question for e in EXAMPLES] + SMOKE_QUESTIONS + [q for q, _ in PLAN_EXAMPLES]
     assert near_duplicates(load_golden(), others, threshold=0.6) == []
 
 
@@ -219,3 +220,22 @@ async def test_fresh_runs_record_without_replaying(tmp_path: Path) -> None:
     assert (await second.complete("sql", [{"role": "user", "content": "q"}])).text == "b"
     replaying = CachingLLM(FakeLLM([]), path, "m", replay=True)  # latest recording wins
     assert (await replaying.complete("sql", [{"role": "user", "content": "q"}])).text == "b"
+
+
+async def test_concurrent_runs_keep_item_order_and_per_question_cache_counts(
+    make_pipeline, tmp_path: Path
+) -> None:
+    items = [
+        GoldenItem(id=f"t{i}", question=f"Profit {i}?", difficulty="refuse",
+                   category="out_of_scope", expected_behaviour="refuse")
+        for i in range(4)
+    ]  # fmt: skip
+    replies = [{"in_scope": False, "reason": f"no {i}"} for i in range(4)]
+    pipeline, fake = make_pipeline(replies)
+    cache_path = tmp_path / "cache.jsonl"
+    pipeline.llm = CachingLLM(fake, cache_path, "m", replay=False)
+    await run_eval(pipeline, items, ["semantic"], {})  # record, sequentially
+    pipeline.llm = CachingLLM(FakeLLM([]), cache_path, "m")
+    records = await run_eval(pipeline, items, ["semantic"], {}, concurrency=3)
+    assert [r["id"] for r in records] == ["t0", "t1", "t2", "t3"]
+    assert [r["cached_calls"] for r in records] == [1, 1, 1, 1]

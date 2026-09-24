@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Callable
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,9 @@ from analytics_copilot.pipeline import AskPipeline
 from analytics_copilot.schemas import AskResponse, Mode
 
 MAX_ROWS_KEPT = 20  # rows stored per record, enough to inspect a failure
+# Cache hits for the question running in the current asyncio task (each task gets its own
+# copy of the context, so counts stay per question when questions run concurrently).
+_QUESTION_HITS: ContextVar[list[int] | None] = ContextVar("question_hits", default=None)
 
 
 class CachingLLM:
@@ -50,18 +54,25 @@ class CachingLLM:
                 self._store[entry["key"]] = entry
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _key(self, role: Role, messages: list[Message]) -> str:
-        payload = json.dumps([self.model_tag, role, messages], sort_keys=True)
+    def _key(self, role: Role, messages: list[Message], temperature: float, sample: int) -> str:
+        # Greedy calls keep the original key so earlier recordings still replay.
+        extra = [temperature, sample] if (temperature, sample) != (0.0, 0) else []
+        payload = json.dumps([self.model_tag, role, messages, *extra], sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
-    async def complete(self, role: Role, messages: list[Message]) -> Completion:
+    async def complete(
+        self, role: Role, messages: list[Message], temperature: float = 0.0, sample: int = 0
+    ) -> Completion:
         """Return the cached reply if present, otherwise call the model and store it."""
-        key = self._key(role, messages)
+        key = self._key(role, messages, temperature, sample)
         if self.replay and key in self._store:
             self.hits += 1
+            counter = _QUESTION_HITS.get()
+            if counter is not None:
+                counter[0] += 1
             e = self._store[key]
             return Completion(e["text"], e["prompt_tokens"], e["completion_tokens"])
-        completion = await self.inner.complete(role, messages)
+        completion = await self.inner.complete(role, messages, temperature, sample)
         entry = {"key": key, "text": completion.text, "prompt_tokens": completion.prompt_tokens,
                  "completion_tokens": completion.completion_tokens}  # fmt: skip
         self._store[key] = entry
@@ -148,20 +159,28 @@ async def run_eval(
     modes: list[Mode],
     gold: dict[str, QueryResult],
     on_record: Callable[[dict], None] | None = None,
+    concurrency: int = 1,
 ) -> list[dict]:
-    """Ask every item in every mode and score it. ``on_record`` sees each record as it lands."""
-    cache = pipeline.llm if isinstance(pipeline.llm, CachingLLM) else None
-    records = []
-    for item in items:
-        for mode in modes:
-            hits_before = cache.hits if cache else 0
+    """Ask every item in every mode and score it, ``concurrency`` questions at a time.
+
+    Records come back in item order whatever order they finish in. ``on_record`` sees
+    each record as it lands. With concurrency above 1, latency includes queueing on the
+    shared model server; the run metadata should say so.
+    """
+    semaphore = asyncio.Semaphore(concurrency)
+    jobs = [(item, mode) for item in items for mode in modes]
+
+    async def one(item: GoldenItem, mode: Mode) -> dict:
+        async with semaphore:
+            counter = [0]
+            _QUESTION_HITS.set(counter)
             response = await pipeline.ask(item.question, mode)
-            cached = (cache.hits - hits_before) if cache else 0
-            record = score_item(item, mode, response, gold.get(item.id), cached)
-            records.append(record)
-            if on_record:
-                on_record(record)
-    return records
+            record = score_item(item, mode, response, gold.get(item.id), counter[0])
+        if on_record:
+            on_record(record)
+        return record
+
+    return list(await asyncio.gather(*(one(item, mode) for item, mode in jobs)))
 
 
 def write_results(
@@ -198,6 +217,7 @@ def main() -> None:
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--out", type=Path, default=Path("results"))
     parser.add_argument("--hardware", default="local")
+    parser.add_argument("--concurrency", type=int, default=1)
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -209,7 +229,11 @@ def main() -> None:
     modes: list[Mode] = list(MODES) if args.mode == "all" else [args.mode]
 
     gold = asyncio.run(run_gold(items, settings.warehouse_path))
-    records = asyncio.run(run_eval(pipeline, items, modes, gold, on_record=print_progress))
+    records = asyncio.run(
+        run_eval(
+            pipeline, items, modes, gold, on_record=print_progress, concurrency=args.concurrency
+        )
+    )
     run = {
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "provider": settings.llm_base_url,
@@ -219,6 +243,7 @@ def main() -> None:
         "code_version": "local",
         "modes": modes,
         "limit": args.limit,
+        "concurrency": args.concurrency,
         "cache_hits": llm.hits if isinstance(llm, CachingLLM) else 0,
     }
     json_path, md_path, _ = write_results(run, records, args.out)

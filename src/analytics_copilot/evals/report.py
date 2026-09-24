@@ -7,7 +7,7 @@ import statistics
 from collections import Counter
 from typing import Any
 
-MODES = ("raw_schema", "semantic", "semantic_rag")
+MODES = ("raw_schema", "semantic", "semantic_rag", "semantic_plan")
 DIFFICULTIES = ("easy", "medium", "hard")
 
 
