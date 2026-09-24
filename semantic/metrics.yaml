@@ -11,7 +11,7 @@ default_window:
   start: "2017-01-01"
   end: "2018-09-01"
 
-time_grains: [day, week, month]
+time_grains: [day, week, month, quarter, year]
 
 # The signed-off decisions (DECISIONS.md) that apply across metrics, in words the SQL model
 # follows. They are sent to the model in semantic and semantic_rag mode, never raw_schema.
@@ -24,8 +24,9 @@ business_rules:
     cancellation rate looks at all orders.
   - >-
     Exception: when a question counts orders that were "placed", count every order whatever
-    its status (do not filter `is_valid`). "Orders placed in 2018" used only to name the
-    period of another metric, such as a delivery rate, keeps that metric's own filters.
+    its status (the orders_placed metric; do not filter `is_valid`). "Orders placed in 2018"
+    used only to name the period of another metric, such as a delivery rate, keeps that
+    metric's own filters.
   - >-
     Delivery metrics (late rate, on-time rate, delivery days) use delivered orders only:
     always filter `is_delivered`.
@@ -124,6 +125,19 @@ metrics:
     date_field: purchased_at
     unit: orders
     synonyms: [order count, number of orders, purchases, order volume]
+
+  orders_placed:
+    label: Orders placed
+    description: >-
+      Number of orders placed, whatever happened to them afterwards: includes canceled and
+      unavailable orders (D24). Use for questions that ask how many orders were "placed".
+    view: fct_orders
+    expression: COUNT(*)
+    grain: order
+    required_filters: []
+    date_field: purchased_at
+    unit: orders
+    synonyms: [orders placed, placed orders, all orders, orders including cancellations]
 
   aov:
     label: Average order value

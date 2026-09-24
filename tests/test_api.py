@@ -23,11 +23,11 @@ async def test_health(client: httpx.AsyncClient) -> None:
 
 async def test_metrics_catalogue_lists_all_governed_metrics(client: httpx.AsyncClient) -> None:
     body = (await client.get("/metrics")).json()
-    assert len(body["metrics"]) == 18
+    assert len(body["metrics"]) == 19
     assert {"name", "description", "expression", "required_filters", "date_field", "unit"} <= set(
         body["metrics"][0]
     )
-    assert body["time_grains"] == ["day", "week", "month"]
+    assert body["time_grains"] == ["day", "week", "month", "quarter", "year"]
 
 
 async def test_ask_returns_the_pipeline_response(client: httpx.AsyncClient, make_pipeline) -> None:

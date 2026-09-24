@@ -9,8 +9,8 @@ from analytics_copilot.semantic import compile_metric, load_semantic_layer
 LAYER = load_semantic_layer()
 
 
-def test_layer_has_18_metrics_with_complete_definitions() -> None:
-    assert len(LAYER.metrics) == 18
+def test_layer_has_19_metrics_with_complete_definitions() -> None:
+    assert len(LAYER.metrics) == 19
     for name, metric in LAYER.metrics.items():
         assert metric.description and metric.expression and metric.unit, name
         assert metric.synonyms, f"{name} needs synonyms for retrieval"
@@ -20,7 +20,7 @@ def test_required_dimensions_are_defined() -> None:
     assert {"customer_state", "product_category", "payment_type", "seller_tier"} <= set(
         LAYER.dimensions
     )
-    assert LAYER.time_grains == ["day", "week", "month"]
+    assert LAYER.time_grains == ["day", "week", "month", "quarter", "year"]
 
 
 def test_compile_applies_window_filters_grain_and_dimensions() -> None:
@@ -50,7 +50,7 @@ def test_filter_values_are_quoted_safely() -> None:
         ({"metric_name": "profit"}, KeyError),
         ({"metric_name": "gmv", "dimensions": ["customer_age"]}, KeyError),
         ({"metric_name": "gmv", "filters": {"city": "Recife"}}, KeyError),
-        ({"metric_name": "gmv", "grain": "quarter"}, ValueError),
+        ({"metric_name": "gmv", "grain": "decade"}, ValueError),
     ],
 )
 def test_compile_rejects_unknown_inputs(kwargs: dict, error: type[Exception]) -> None:

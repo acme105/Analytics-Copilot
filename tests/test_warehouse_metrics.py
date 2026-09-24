@@ -22,6 +22,7 @@ START, END = LAYER.default_window.start, LAYER.default_window.end
 PLAUSIBLE = {
     "gmv": (1e7, 2e7),
     "orders": (90_000, 100_000),
+    "orders_placed": (95_000, 101_000),
     "aov": (100, 200),
     "items_per_order": (1.0, 1.5),
     "active_customers": (85_000, 97_000),
