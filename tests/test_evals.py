@@ -80,7 +80,7 @@ GOLD = """SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) FROM fct_orders
     ("pred", "error", "label"),
     [
         (None, "Unknown column profit.", "hallucinated_column"),
-        ("SELECT AVG(price) FROM fct_order_items", None, "wrong_join"),
+        ("SELECT AVG(price) FROM fct_order_items", None, "wrong_table_or_join"),
         (
             "SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) FROM fct_orders "
             "WHERE purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'",

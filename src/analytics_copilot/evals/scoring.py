@@ -192,7 +192,7 @@ def _features(sql: str) -> _Features | None:
 def classify_failure(pred_sql: str | None, gold_sql: str, error: str | None) -> str:
     """First-pass failure label from comparing the predicted and gold SQL.
 
-    Checked in order: hallucinated column, wrong join, wrong metric definition,
+    Checked in order: hallucinated column, wrong table or join, wrong metric definition,
     wrong time grain, wrong filter, other. A reviewer can override it.
     """
     if error:
@@ -200,7 +200,7 @@ def classify_failure(pred_sql: str | None, gold_sql: str, error: str | None) -> 
         if "unknown column" in lowered or "referenced column" in lowered:
             return "hallucinated_column"
         if "unknown table" in lowered:
-            return "wrong_join"
+            return "wrong_table_or_join"
         return "other"
     if not pred_sql:
         return "other"
@@ -208,7 +208,7 @@ def classify_failure(pred_sql: str | None, gold_sql: str, error: str | None) -> 
     if pred is None or gold is None:
         return "other"
     if pred.tables != gold.tables:
-        return "wrong_join"
+        return "wrong_table_or_join"
     missing_flags = (gold.where_columns & _DEFINITION_FLAGS) - pred.where_columns
     if pred.aggregates != gold.aggregates or missing_flags:
         return "wrong_metric_definition"
