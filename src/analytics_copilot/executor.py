@@ -52,7 +52,11 @@ def _run(sql: str, path: Path, timeout_s: float) -> QueryResult:
         rows = [tuple(_plain(v) for v in row) for row in cursor.fetchall()]
         return QueryResult(columns=[d[0] for d in cursor.description], rows=rows)
     except duckdb.InterruptException as error:
-        raise QueryError(f"Query timed out after {timeout_s:g}s.") from error
+        raise QueryError(
+            f"Query timed out after {timeout_s:g}s. It probably joins large tables row by "
+            "row or scans far more than needed: aggregate each side in its own CTE first "
+            "(one row per group), then join the small results."
+        ) from error
     except duckdb.Error as error:
         raise QueryError(str(error)) from error
     finally:

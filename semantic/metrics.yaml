@@ -16,7 +16,7 @@ time_grains: [day, week, month, quarter, year]
 # The signed-off decisions (DECISIONS.md) that apply across metrics, in words the SQL model
 # follows. They are sent to the model in semantic and semantic_rag mode, never raw_schema.
 # Sources, in order: valid-order definition + D12, D24, delivery metric definitions, review
-# metric definitions, D6, D5, D4, GMV definition.
+# metric definitions, D6, D5, D4, GMV definition, grain of the marts (D34).
 business_rules:
   - >-
     Canceled and unavailable orders are not real sales. For orders, GMV, AOV, items per
@@ -44,6 +44,11 @@ business_rules:
   - >-
     Money is in Brazilian reais (R$). GMV and prices exclude freight unless the question asks
     about freight.
+  - >-
+    Pick the table by what one row should be. Per order (order counts, AOV, items per order,
+    delivery, reviews, freight per order): fct_orders. Per item (GMV and freight totals by
+    category or seller, sellers): fct_order_items. Payment amounts, types and instalments:
+    fct_payments. Never average item rows to get a per-order figure.
 
 views:
   fct_orders:

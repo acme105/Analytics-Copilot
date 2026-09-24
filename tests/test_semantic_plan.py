@@ -159,3 +159,22 @@ async def test_custom_route_uses_result_feedback_to_fix_an_empty_answer(make_pip
     response = await pipeline.ask("GMV by state", "semantic_plan")
     assert response.rows == [["RJ", 250.0], ["SP", 100.0]]
     assert "no rows" in llm.calls[3][1][-1]["content"]
+
+
+def test_fan_out_joins_between_fact_tables_are_flagged() -> None:
+    blow_up = (
+        f"SELECT o.customer_state, AVG(CASE WHEN l.is_late THEN 1 ELSE 0 END) FROM fct_orders o "
+        f"JOIN fct_orders l ON o.customer_state = l.customer_state "
+        f"WHERE o.is_delivered AND l.is_delivered AND o.{WINDOW} GROUP BY 1"
+    )
+    assert any("multiplies rows" in v for v in rule_violations(blow_up, "q", [], LAYER))
+
+
+def test_joining_an_aggregate_to_a_fact_table_is_fine() -> None:
+    top = (
+        "WITH top AS (SELECT customer_state FROM fct_orders WHERE is_valid "
+        f"AND {WINDOW} GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 2) "
+        "SELECT o.customer_state, AVG(delivery_days) FROM top JOIN fct_orders o "
+        f"ON top.customer_state = o.customer_state WHERE o.is_delivered AND o.{WINDOW} GROUP BY 1"
+    )
+    assert not any("multiplies rows" in v for v in rule_violations(top, "q", [], LAYER))

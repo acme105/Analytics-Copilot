@@ -1,8 +1,9 @@
 """Deterministic checks on model-written SQL, before and after it runs (DECISIONS D28).
 
 ``rule_violations`` is the rule gate: it reads the SQL with sqlglot and reports every
-business rule the query breaks (required metric filters, purchase date, window). A query
-can be valid SQL and still be silently wrong; these checks catch that before it runs.
+business rule the query breaks (required metric filters, purchase date, window, joins that
+multiply rows). A query can be valid SQL and still be silently wrong or impossibly slow;
+these checks catch that before it runs.
 
 ``result_problems`` is execution feedback: it looks at what came back (empty, dates outside
 the data, all nulls) and reports anything suspicious, so the model gets one chance to fix it.
@@ -69,7 +70,52 @@ def rule_violations(
             "Sales, order and payment figures must filter `is_valid` "
             "(canceled and unavailable orders are not sales)."
         )
+    problems += _fan_out_joins(tree, {d.column for d in layer.dimensions.values()})
     return list(dict.fromkeys(problems))
+
+
+def _fan_out_joins(tree: exp.Expression, dimension_columns: set[str]) -> list[str]:
+    """Joins that pair two row-level fact tables only on dimension columns (e.g. state).
+
+    Every order in SP then meets every other order in SP: hundreds of millions of rows,
+    and wrong averages. Joining an aggregated CTE (one row per state) to a fact table is
+    fine and is not flagged. DuckDB's own row estimate misses this case (D34).
+    """
+    ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
+
+    def is_fact(node: exp.Expression) -> bool:
+        return (
+            isinstance(node, exp.Table)
+            and node.name.lower().startswith("fct_")
+            and node.name.lower() not in ctes
+        )
+
+    problems = []
+    for select in tree.find_all(exp.Select):
+        joins = select.args.get("joins") or []
+        from_ = select.args.get("from_") or select.args.get(
+            "from"
+        )  # key differs by sqlglot version
+        sources = [from_.this] if from_ else []
+        if sum(is_fact(s) for s in [*sources, *(j.this for j in joins)]) < 2:
+            continue
+        for join in joins:
+            if not is_fact(join.this):
+                continue
+            on = join.args.get("on")
+            keys = {
+                col.name.lower()
+                for eq in (on.find_all(exp.EQ) if on else [])
+                for col in eq.find_all(exp.Column)
+            }
+            if not keys or keys <= dimension_columns:
+                joined = ", ".join(sorted(keys)) or "nothing"
+                problems.append(
+                    f"Joining {join.this.name} row by row on {joined} multiplies rows (every "
+                    "order meets every other order with the same value). Aggregate each side "
+                    "in its own CTE first (one row per group), then join the small results."
+                )
+    return problems
 
 
 def result_problems(
