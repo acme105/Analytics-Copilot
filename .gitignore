@@ -16,6 +16,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Raw Kaggle downloads (warehouse copy, code copy, logs); curated results are copied to results/
+results/kaggle/
+
 # Eval response cache (results files themselves are committed)
 results/.cache/
 
