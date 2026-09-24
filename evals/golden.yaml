@@ -1,0 +1,1210 @@
+# Golden eval set: questions with hand-written gold SQL against the marts.
+#
+# Rules (DECISIONS D20, D22):
+# - Gold SQL is written directly against the warehouse, never with the pipeline under test.
+# - Gold follows the signed-off definitions: valid orders only for sales metrics, delivered
+#   orders for delivery metrics, purchase date for all dates, default window 2017-01-01 to
+#   2018-09-01, customer_unique_id for people.
+# - Only `verified: true` items count in headline metrics. Everything starts unverified and is
+#   reviewed in batches of 20.
+# - No near-duplicates of semantic/examples.yaml or the smoke questions (checked by tests).
+# - `ordered: true` means row order is part of the answer (rankings). Label-only columns
+#   (e.g. "late" vs "on time") are left out of gold where their wording can't be predicted;
+#   the numeric columns carry the answer.
+
+items:
+  # ---------------------------------------------------------------- easy (40)
+  - id: e001
+    question: How many orders were placed in 2017?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e002
+    question: How much GMV did Olist generate in the first half of 2018?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-07-01'
+
+  - id: e003
+    question: What was the average order value in 2018?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e004
+    question: What is the overall average review score?
+    difficulty: easy
+    category: reviews
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e005
+    question: What share of delivered orders arrived late overall?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e006
+    question: How many sellers were active in 2017?
+    difficulty: easy
+    category: sellers
+    gold_sql: |
+      SELECT COUNT(DISTINCT seller_id) AS active_sellers FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e007
+    question: How many unique customers bought something in 2018?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT customer_unique_id) AS active_customers FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e008
+    question: What was the cancellation rate in 2017?
+    difficulty: easy
+    category: cancellations
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate FROM fct_orders
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e009
+    question: On average, how many days does delivery take?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(delivery_days) AS avg_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e010
+    question: What was the freight ratio in 2018?
+    difficulty: easy
+    category: freight
+    gold_sql: |
+      SELECT SUM(freight_value) / SUM(price) AS freight_ratio FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e011
+    question: What is the average number of items per order?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT AVG(items) AS items_per_order FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e012
+    question: How many new customers did we get in 2018?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT customer_unique_id) AS new_customers FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e013
+    question: What percentage of payment value was paid by credit card?
+    difficulty: easy
+    category: payments
+    gold_sql: |
+      SELECT SUM(payment_value) FILTER (WHERE payment_type = 'credit_card') / SUM(payment_value)
+             AS credit_card_payment_share
+      FROM fct_payments
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e014
+    question: What is the average number of credit card instalments?
+    difficulty: easy
+    category: payments
+    gold_sql: |
+      SELECT AVG(installments) AS avg_installments FROM fct_payments
+      WHERE is_valid AND payment_type = 'credit_card'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e015
+    question: What share of reviews were 1 or 2 stars?
+    difficulty: easy
+    category: reviews
+    gold_sql: |
+      SELECT AVG(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END) AS low_review_share
+      FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e016
+    question: What was GMV in November 2017?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-11-01' AND purchased_at < DATE '2017-12-01'
+
+  - id: e017
+    question: How many orders came from São Paulo state in 2018?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND customer_state = 'SP'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e018
+    question: What was the on-time delivery rate in 2017?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e019
+    question: How many orders were canceled or unavailable in 2018?
+    difficulty: easy
+    category: cancellations
+    gold_sql: |
+      SELECT COUNT(*) AS canceled_orders FROM fct_orders
+      WHERE is_canceled
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e020
+    question: What was the average review score in 2018?
+    difficulty: easy
+    category: reviews
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e021
+    question: What was the average order value in December 2017?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-12-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e022
+    question: How many customers were active over the whole analysis window?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT customer_unique_id) AS active_customers FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e023
+    question: What was GMV per seller in 2018?
+    difficulty: easy
+    category: sellers
+    gold_sql: |
+      SELECT SUM(price) / COUNT(DISTINCT seller_id) AS gmv_per_seller FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e024
+    question: How many orders were paid mainly by boleto in 2017?
+    difficulty: easy
+    category: payments
+    notes: An order's payment type is its highest-value payment (D8).
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND payment_type = 'boleto'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e025
+    question: How much freight was charged in total in 2018?
+    difficulty: easy
+    category: freight
+    gold_sql: |
+      SELECT SUM(freight_value) AS total_freight FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e026
+    question: What was the 90-day repeat purchase rate over the analysis window?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT AVG(CASE WHEN repeat_within_90d THEN 1 ELSE 0 END) AS repeat_purchase_rate
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1 AND has_90d_followup
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e027
+    question: How many orders were placed on Black Friday 2017, 24 November?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-11-24' AND purchased_at < DATE '2017-11-25'
+
+  - id: e028
+    question: What was the late delivery rate for orders placed in 2018?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e029
+    question: How many sellers made at least one sale in August 2018?
+    difficulty: easy
+    category: sellers
+    gold_sql: |
+      SELECT COUNT(DISTINCT seller_id) AS active_sellers FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-08-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e030
+    question: What was the average delivery time in days for orders placed in 2018?
+    difficulty: easy
+    category: delivery
+    gold_sql: |
+      SELECT AVG(delivery_days) AS avg_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e031
+    question: How much GMV came from the health_beauty category over the analysis window?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND product_category = 'health_beauty'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e032
+    question: How many orders were placed in total over the analysis window?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e033
+    question: What was the average review score for customers in Rio de Janeiro state (RJ)?
+    difficulty: easy
+    category: reviews
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL AND customer_state = 'RJ'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e034
+    question: What was the cancellation rate over the whole analysis window?
+    difficulty: easy
+    category: cancellations
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate FROM fct_orders
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e035
+    question: How much freight did customers in Minas Gerais (MG) pay in 2017?
+    difficulty: easy
+    category: freight
+    gold_sql: |
+      SELECT SUM(freight_value) AS total_freight FROM fct_order_items
+      WHERE is_valid AND customer_state = 'MG'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+
+  - id: e036
+    question: How much money was paid by debit card in 2018?
+    difficulty: easy
+    category: payments
+    gold_sql: |
+      SELECT SUM(payment_value) AS debit_card_value FROM fct_payments
+      WHERE is_valid AND payment_type = 'debit_card'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e037
+    question: How many first-time customers did we acquire in January 2018?
+    difficulty: easy
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT customer_unique_id) AS new_customers FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-02-01'
+
+  - id: e038
+    question: What was the average order value for orders paid by credit card?
+    difficulty: easy
+    category: gmv
+    notes: An order's payment type is its highest-value payment (D8).
+    gold_sql: |
+      SELECT SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0 AND payment_type = 'credit_card'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e039
+    question: How many orders in 2018 had more than one item?
+    difficulty: easy
+    category: orders
+    gold_sql: |
+      SELECT COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND items > 1
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: e040
+    question: Which month had the highest GMV, and how much was it?
+    difficulty: easy
+    category: gmv
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY gmv DESC LIMIT 1
+
+  # ---------------------------------------------------------------- medium (45)
+  - id: m001
+    question: Show GMV for each month of 2017.
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m002
+    question: Which 10 states placed the most orders in 2017?
+    difficulty: medium
+    category: orders
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY orders DESC LIMIT 10
+
+  - id: m003
+    question: What is the average review score for each payment type?
+    difficulty: medium
+    category: reviews
+    gold_sql: |
+      SELECT payment_type, AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m004
+    question: Which 5 states had the worst late delivery rate in 2018?
+    difficulty: medium
+    category: delivery
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY late_delivery_rate DESC LIMIT 5
+
+  - id: m005
+    question: How many orders were placed each week in July 2018?
+    difficulty: medium
+    category: orders
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('week', purchased_at) AS DATE) AS period, COUNT(*) AS orders
+      FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-07-01' AND purchased_at < DATE '2018-08-01'
+      GROUP BY 1
+
+  - id: m006
+    question: How much GMV did each seller tier generate in 2018?
+    difficulty: medium
+    category: sellers
+    gold_sql: |
+      SELECT seller_tier, SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m007
+    question: Which 5 product categories had the most orders in 2017?
+    difficulty: medium
+    category: orders
+    ordered: true
+    notes: Order-level category is the order's highest-value item (D8).
+    gold_sql: |
+      SELECT product_category, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY orders DESC LIMIT 5
+
+  - id: m008
+    question: Which 5 states get their deliveries fastest, by average delivery days?
+    difficulty: medium
+    category: delivery
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(delivery_days) AS avg_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY avg_delivery_days ASC LIMIT 5
+
+  - id: m009
+    question: Show the number of distinct buyers per month in 2018.
+    difficulty: medium
+    category: customers
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             COUNT(DISTINCT customer_unique_id) AS active_customers
+      FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m010
+    question: What was the cancellation rate in each month of 2017?
+    difficulty: medium
+    category: cancellations
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
+      FROM fct_orders
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m011
+    question: What was the average order value for each payment type in 2018?
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT payment_type, SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m012
+    question: What share of payment value was paid by credit card in each month of 2018?
+    difficulty: medium
+    category: payments
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             SUM(payment_value) FILTER (WHERE payment_type = 'credit_card') / SUM(payment_value)
+             AS credit_card_payment_share
+      FROM fct_payments
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m013
+    question: In which 5 states do credit card customers use the most instalments on average?
+    difficulty: medium
+    category: payments
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(installments) AS avg_installments FROM fct_payments
+      WHERE is_valid AND payment_type = 'credit_card'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY avg_installments DESC LIMIT 5
+
+  - id: m014
+    question: Where is freight most expensive relative to item prices? Give the 5 states with the highest freight ratio in 2018.
+    difficulty: medium
+    category: freight
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, SUM(freight_value) / SUM(price) AS freight_ratio
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY freight_ratio DESC LIMIT 5
+
+  - id: m015
+    question: How many first-time buyers did we get in each month of 2017?
+    difficulty: medium
+    category: customers
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             COUNT(DISTINCT customer_unique_id) AS new_customers
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m016
+    question: What is the late delivery rate for each seller tier?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT seller_tier, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m017
+    question: How many orders were there for each payment type in 2018?
+    difficulty: medium
+    category: payments
+    gold_sql: |
+      SELECT payment_type, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m018
+    question: Compare GMV between São Paulo (SP) and Rio de Janeiro (RJ) in 2017.
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT customer_state, SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND customer_state IN ('SP', 'RJ')
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m019
+    question: How do review scores compare between late and on-time deliveries?
+    difficulty: medium
+    category: reviews
+    notes: Gold keeps only the numeric column; the late/on-time label wording varies.
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE is_delivered AND review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY is_late
+
+  - id: m020
+    question: Which 3 product categories had the highest average order value in 2018?
+    difficulty: medium
+    category: gmv
+    ordered: true
+    gold_sql: |
+      SELECT product_category, SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY aov DESC LIMIT 3
+
+  - id: m021
+    question: How many orders were placed on each day from 1 to 7 March 2018?
+    difficulty: medium
+    category: orders
+    gold_sql: |
+      SELECT CAST(purchased_at AS DATE) AS day, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-03-01' AND purchased_at < DATE '2018-03-08'
+      GROUP BY 1
+
+  - id: m022
+    question: What was the average review score in each month of 2018?
+    difficulty: medium
+    category: reviews
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(review_score) AS avg_review_score
+      FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m023
+    question: What was the average delivery time in days for each month of 2017?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(delivery_days) AS avg_delivery_days
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m024
+    question: What was GMV in Bahia, Pernambuco and Ceará (BA, PE, CE) in 2018?
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT customer_state, SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND customer_state IN ('BA', 'PE', 'CE')
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m025
+    question: What share of reviewed orders got 5 stars in 2018?
+    difficulty: medium
+    category: reviews
+    gold_sql: |
+      SELECT AVG(CASE WHEN review_score = 5 THEN 1 ELSE 0 END) AS five_star_share
+      FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: m026
+    question: Which month of 2017 had the highest cancellation rate?
+    difficulty: medium
+    category: cancellations
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
+      FROM fct_orders
+      WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY cancellation_rate DESC LIMIT 1
+
+  - id: m027
+    question: What were the 3 biggest categories by GMV in Rio de Janeiro state (RJ) in 2018?
+    difficulty: medium
+    category: gmv
+    ordered: true
+    gold_sql: |
+      SELECT product_category, SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND customer_state = 'RJ'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY gmv DESC LIMIT 3
+
+  - id: m028
+    question: How many orders were placed in Q1 2017 compared with Q1 2018?
+    difficulty: medium
+    category: orders
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period, COUNT(*) AS orders
+      FROM fct_orders
+      WHERE is_valid AND (
+          (purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2017-04-01')
+          OR (purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-04-01'))
+      GROUP BY 1
+
+  - id: m029
+    question: What was the average order value for each seller tier in 2018?
+    difficulty: medium
+    category: sellers
+    gold_sql: |
+      SELECT seller_tier, SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m030
+    question: How did items per order change month by month in 2018?
+    difficulty: medium
+    category: orders
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(items) AS items_per_order
+      FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m031
+    question: What is the freight ratio for each payment type?
+    difficulty: medium
+    category: freight
+    gold_sql: |
+      SELECT payment_type, SUM(freight_value) / SUM(price) AS freight_ratio
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m032
+    question: Which 5 states had the most distinct buyers in 2018?
+    difficulty: medium
+    category: customers
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, COUNT(DISTINCT customer_unique_id) AS active_customers
+      FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY active_customers DESC LIMIT 5
+
+  - id: m033
+    question: What was the late delivery rate for orders placed in Black Friday week 2017, 20 to 26 November?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-11-20' AND purchased_at < DATE '2017-11-27'
+
+  - id: m034
+    question: Show monthly GMV for the watches_gifts category in 2018.
+    difficulty: medium
+    category: gmv
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND product_category = 'watches_gifts'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m035
+    question: How many orders did each seller tier handle in 2017?
+    difficulty: medium
+    category: sellers
+    notes: Order-level seller tier is the tier of the order's highest-value item's seller (D8).
+    gold_sql: |
+      SELECT seller_tier, COUNT(*) AS orders FROM fct_orders
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m036
+    question: Which 5 states give the lowest average review scores?
+    difficulty: medium
+    category: reviews
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY avg_review_score ASC LIMIT 5
+
+  - id: m037
+    question: Rank the states by cancellation rate for 2018 and show the top 5.
+    difficulty: medium
+    category: cancellations
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
+      FROM fct_orders
+      WHERE purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY cancellation_rate DESC LIMIT 5
+
+  - id: m038
+    question: How much was paid with each payment type in 2017?
+    difficulty: medium
+    category: payments
+    gold_sql: |
+      SELECT payment_type, SUM(payment_value) AS payment_value FROM fct_payments
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m039
+    question: How long do late orders take to arrive compared with on-time orders?
+    difficulty: medium
+    category: delivery
+    notes: Gold keeps only the numeric column; the late/on-time label wording varies.
+    gold_sql: |
+      SELECT AVG(delivery_days) AS avg_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY is_late
+
+  - id: m040
+    question: What was the on-time delivery rate in each month of 2017?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
+             AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: m041
+    question: What are the 5 best-selling categories by GMV in São Paulo state (SP)?
+    difficulty: medium
+    category: gmv
+    ordered: true
+    gold_sql: |
+      SELECT product_category, SUM(price) AS gmv FROM fct_order_items
+      WHERE is_valid AND customer_state = 'SP'
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY gmv DESC LIMIT 5
+
+  - id: m042
+    question: Which 5 states brought in the most new customers in 2018?
+    difficulty: medium
+    category: customers
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, COUNT(DISTINCT customer_unique_id) AS new_customers
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY new_customers DESC LIMIT 5
+
+  - id: m043
+    question: Show monthly GMV in 2018 for orders paid mainly with vouchers.
+    difficulty: medium
+    category: payments
+    notes: An order's payment type is its highest-value payment (D8).
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND payment_type = 'voucher'
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m044
+    question: How many items per order do customers buy with each payment type?
+    difficulty: medium
+    category: orders
+    gold_sql: |
+      SELECT payment_type, AVG(items) AS items_per_order FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1
+
+  - id: m045
+    question: What was the weekly late delivery rate in June 2018?
+    difficulty: medium
+    category: delivery
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('week', purchased_at) AS DATE) AS period,
+             AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
+      FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2018-06-01' AND purchased_at < DATE '2018-07-01'
+      GROUP BY 1
+
+  # ---------------------------------------------------------------- hard (20)
+  - id: h001
+    question: Which 5 categories grew GMV the most, in reais, from the first half of 2017 to the first half of 2018?
+    difficulty: hard
+    category: gmv
+    ordered: true
+    gold_sql: |
+      SELECT product_category,
+             SUM(price) FILTER (WHERE purchased_at >= DATE '2018-01-01')
+             - SUM(price) FILTER (WHERE purchased_at < DATE '2018-01-01') AS gmv_growth
+      FROM fct_order_items
+      WHERE is_valid AND (
+          (purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2017-07-01')
+          OR (purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-07-01'))
+      GROUP BY 1 ORDER BY gmv_growth DESC LIMIT 5
+
+  - id: h002
+    question: What was the month-over-month percentage change in orders for each month of 2018?
+    difficulty: hard
+    category: orders
+    notes: January 2018 is compared with December 2017.
+    gold_sql: |
+      WITH monthly AS (
+          SELECT DATE_TRUNC('month', purchased_at) AS period, COUNT(*) AS orders
+          FROM fct_orders
+          WHERE is_valid
+            AND purchased_at >= DATE '2017-12-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1
+      ),
+      changes AS (
+          SELECT period, orders / LAG(orders) OVER (ORDER BY period) - 1 AS mom_change
+          FROM monthly
+      )
+      SELECT CAST(period AS DATE) AS period, mom_change FROM changes
+      WHERE period >= DATE '2018-01-01'
+
+  - id: h003
+    question: Among states with at least 500 delivered orders in both 2017 and 2018, which state improved its late delivery rate the most?
+    difficulty: hard
+    category: delivery
+    gold_sql: |
+      WITH by_year AS (
+          SELECT customer_state, YEAR(purchased_at) AS yr, COUNT(*) AS delivered,
+                 AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_rate
+          FROM fct_orders
+          WHERE is_delivered
+            AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1, 2
+      )
+      SELECT a.customer_state
+      FROM by_year a JOIN by_year b ON a.customer_state = b.customer_state
+      WHERE a.yr = 2017 AND b.yr = 2018 AND a.delivered >= 500 AND b.delivered >= 500
+      ORDER BY b.late_rate - a.late_rate ASC LIMIT 1
+
+  - id: h004
+    question: What share of 2018 GMV came from top-tier sellers?
+    difficulty: hard
+    category: sellers
+    gold_sql: |
+      SELECT SUM(price) FILTER (WHERE seller_tier = 'top') / SUM(price) AS top_tier_gmv_share
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: h005
+    question: Split 2017's first-time customers by how they paid for their first order. What was the 90-day repeat purchase rate for each payment type?
+    difficulty: hard
+    category: customers
+    notes: Payment type is the first order's highest-value payment (D8).
+    gold_sql: |
+      SELECT payment_type,
+             AVG(CASE WHEN repeat_within_90d THEN 1 ELSE 0 END) AS repeat_purchase_rate
+      FROM fct_orders
+      WHERE is_valid AND customer_order_number = 1 AND has_90d_followup
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1
+
+  - id: h006
+    question: Among categories with at least 1,000 reviewed orders, which 3 have the highest share of 1 and 2 star reviews?
+    difficulty: hard
+    category: reviews
+    ordered: true
+    ambiguous: true
+    notes: >-
+      The top result is 'unknown' (products with no category). Gold keeps it because it is a
+      category value in the data; a reader might expect it excluded. Decide at review.
+    gold_sql: |
+      SELECT product_category, AVG(CASE WHEN review_score <= 2 THEN 1 ELSE 0 END) AS low_review_share
+      FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 HAVING COUNT(*) >= 1000
+      ORDER BY low_review_share DESC LIMIT 3
+
+  - id: h007
+    question: Do late deliveries get worse reviews? Give the average review score for late and on-time orders in each year.
+    difficulty: hard
+    category: reviews
+    notes: Gold keeps year and the score; the late/on-time label wording varies.
+    gold_sql: |
+      SELECT YEAR(purchased_at) AS yr, AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE is_delivered AND review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1, is_late
+
+  - id: h008
+    question: Which month saw the biggest drop in GMV compared with the month before?
+    difficulty: hard
+    category: gmv
+    gold_sql: |
+      WITH monthly AS (
+          SELECT DATE_TRUNC('month', purchased_at) AS period, SUM(price) AS gmv
+          FROM fct_order_items
+          WHERE is_valid
+            AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1
+      ),
+      changes AS (
+          SELECT period, gmv - LAG(gmv) OVER (ORDER BY period) AS change FROM monthly
+      )
+      SELECT CAST(period AS DATE) AS period FROM changes
+      WHERE change IS NOT NULL ORDER BY change ASC LIMIT 1
+
+  - id: h009
+    question: What percentage of 2018 GMV came from São Paulo state?
+    difficulty: hard
+    category: gmv
+    gold_sql: |
+      SELECT SUM(price) FILTER (WHERE customer_state = 'SP') / SUM(price) AS sp_gmv_share
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: h010
+    question: How does the average order value of first orders compare with repeat orders?
+    difficulty: hard
+    category: customers
+    notes: Gold keeps only the numeric column; the first/repeat label wording varies.
+    gold_sql: |
+      SELECT SUM(gmv) / COUNT(*) AS aov FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY customer_order_number = 1
+
+  - id: h011
+    question: How many customers placed 3 or more orders during the analysis window?
+    difficulty: hard
+    category: customers
+    gold_sql: |
+      SELECT COUNT(*) AS customers FROM (
+          SELECT customer_unique_id FROM fct_orders
+          WHERE is_valid
+            AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+          GROUP BY 1 HAVING COUNT(*) >= 3
+      )
+
+  - id: h012
+    question: Which seller tier had the highest cancellation rate in 2018?
+    difficulty: hard
+    category: cancellations
+    gold_sql: |
+      SELECT seller_tier FROM fct_orders
+      WHERE purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) DESC LIMIT 1
+
+  - id: h013
+    question: In 2018, what share of orders paid more than half their item value in freight?
+    difficulty: hard
+    category: freight
+    gold_sql: |
+      SELECT AVG(CASE WHEN freight > 0.5 * gmv THEN 1 ELSE 0 END) AS high_freight_share
+      FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: h014
+    question: In which week of 2017 did GMV peak, and what was it?
+    difficulty: hard
+    category: gmv
+    gold_sql: |
+      SELECT CAST(DATE_TRUNC('week', purchased_at) AS DATE) AS period, SUM(price) AS gmv
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY 1 ORDER BY gmv DESC LIMIT 1
+
+  - id: h015
+    question: Which 5 states have the slowest median delivery time?
+    difficulty: hard
+    category: delivery
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, MEDIAN(delivery_days) AS median_delivery_days FROM fct_orders
+      WHERE is_delivered
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY median_delivery_days DESC LIMIT 5
+
+  - id: h016
+    question: Of the customers whose first order was in Q1 2018, how many placed a second order by the end of August 2018?
+    difficulty: hard
+    category: customers
+    gold_sql: |
+      SELECT COUNT(DISTINCT f.customer_unique_id) AS repeat_customers
+      FROM fct_orders f
+      JOIN fct_orders s
+        ON s.customer_unique_id = f.customer_unique_id AND s.customer_order_number = 2
+      WHERE f.is_valid AND f.customer_order_number = 1
+        AND f.purchased_at >= DATE '2018-01-01' AND f.purchased_at < DATE '2018-04-01'
+        AND s.is_valid AND s.purchased_at < DATE '2018-09-01'
+
+  - id: h017
+    question: What share of 2018 GMV came from new or dormant sellers?
+    difficulty: hard
+    category: sellers
+    gold_sql: |
+      SELECT SUM(price) FILTER (WHERE seller_tier = 'new_or_dormant') / SUM(price)
+             AS new_or_dormant_gmv_share
+      FROM fct_order_items
+      WHERE is_valid AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+
+  - id: h018
+    question: Which 5 states pay the most freight per order on average in 2018?
+    difficulty: hard
+    category: freight
+    ordered: true
+    gold_sql: |
+      SELECT customer_state, SUM(freight) / COUNT(*) AS freight_per_order FROM fct_orders
+      WHERE is_valid AND items > 0
+        AND purchased_at >= DATE '2018-01-01' AND purchased_at < DATE '2018-09-01'
+      GROUP BY 1 ORDER BY freight_per_order DESC LIMIT 5
+
+  - id: h019
+    question: How did the average review score in the first half of 2017 compare with the second half?
+    difficulty: hard
+    category: reviews
+    notes: Gold keeps only the numeric column; the half-year label wording varies.
+    gold_sql: |
+      SELECT AVG(review_score) AS avg_review_score FROM fct_orders
+      WHERE review_score IS NOT NULL
+        AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
+      GROUP BY purchased_at < DATE '2017-07-01'
+
+  - id: h020
+    question: For customers who ordered again, how many days on average passed between their first and second order?
+    difficulty: hard
+    category: customers
+    notes: First orders in the analysis window; second order at any time after.
+    gold_sql: |
+      SELECT AVG(DATE_DIFF('second', f.purchased_at, s.purchased_at) / 86400.0) AS avg_days
+      FROM fct_orders f
+      JOIN fct_orders s
+        ON s.customer_unique_id = f.customer_unique_id AND s.customer_order_number = 2
+      WHERE f.is_valid AND f.customer_order_number = 1 AND s.is_valid
+        AND f.purchased_at >= DATE '2017-01-01' AND f.purchased_at < DATE '2018-09-01'
+
+  # ---------------------------------------------------------------- should refuse (15)
+  - id: r001
+    question: How much profit did each product category make?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No cost data.
+
+  - id: r002
+    question: What was our marketing cost per acquired customer?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No marketing spend.
+
+  - id: r003
+    question: Forecast GMV for December 2018.
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Forecast beyond the data.
+
+  - id: r004
+    question: List the email addresses of our top 10 customers.
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Personal data.
+
+  - id: r005
+    question: What is the phone number of the customer who placed the most orders?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Personal data.
+
+  - id: r006
+    question: How many units of each product are left in stock?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No inventory data.
+
+  - id: r007
+    question: What was the website conversion rate in 2018?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No traffic data.
+
+  - id: r008
+    question: How many orders were returned or refunded?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No returns or refunds data.
+
+  - id: r009
+    question: Predict which customers will churn next month.
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Prediction beyond the data.
+
+  - id: r010
+    question: What were our sales in 2020?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Data ends in October 2018.
+
+  - id: r011
+    question: What is the gross margin for the electronics category?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No cost data.
+
+  - id: r012
+    question: Which advertising campaign drove the most orders?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: No campaign data.
+
+  - id: r013
+    question: What is the name and home address of the biggest customer in São Paulo?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Personal data.
+
+  - id: r014
+    question: How much did we pay our shipping carriers in 2018?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: freight_value is what customers were charged, not the carrier cost.
+
+  - id: r015
+    question: What will the late delivery rate be next quarter?
+    difficulty: refuse
+    category: out_of_scope
+    expected_behaviour: refuse
+    notes: Forecast beyond the data.
