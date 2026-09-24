@@ -88,3 +88,41 @@ Each entry records the decision, the options considered, why this one, and the t
 - **Open question:** 45% of these repeats (801 of 1,772 second orders within 90 days) came on the same day as the first order, 775 of them within an hour. They look like one basket split into two checkouts. Excluding second orders within 1 hour gives 1.30%. Kept in for now, as specified.
 
 The other drafted definitions (valid orders, delivery metrics grouped by purchase month, credit-card-only instalments, card share by value, order-level dimensions from the highest-value item and payment) were signed off unchanged on 2026-09-24.
+
+## D14. The SQL guard adds or lowers LIMIT instead of rejecting a query without one
+
+- **Options:** reject SQL with no LIMIT and send it back for repair (the spec's first idea); rewrite the LIMIT.
+- **Chosen:** rewrite. A missing LIMIT is added and a larger one is lowered to the cap (200 rows, fetched as 201 so truncation can be reported). The tests assert that a missing LIMIT gets added.
+- **Why:** a missing LIMIT is harmless to fix mechanically. Rejecting it would spend a repair call (latency and tokens) and count as an error on questions the model answered correctly, such as a single-row total.
+- **Trade-off:** the model is never taught to include LIMIT, which is fine because the guard always will.
+
+## D15. Guard plus a locked-down connection: two independent defences
+
+- **Chosen:** sqlglot guard (one SELECT, no write or admin nodes anywhere in the tree, allowed tables only, no table functions, known columns only), then a DuckDB connection opened `read_only=True` with `enable_external_access=false` and a timer that calls `interrupt()`.
+- **Why:** a parser-based guard can miss an edge case. The connection-level settings mean a missed write fails as read-only, a missed `read_csv` can't reach the file system, and a runaway query is stopped. Tests cover each defence on its own, without the guard in front.
+- **Trade-off:** the column check works on names only. A real column on the wrong table passes the guard and fails in DuckDB, and the repair step then handles it.
+
+## D16. The three modes differ only in context; `raw_schema` sees the typed staging views
+
+- **Options for raw_schema:** the raw text tables; the typed `stg_*` views.
+- **Chosen:** `stg_*`. Raw tables store every column as text, which would measure casting skill instead of semantic understanding. `semantic` and `semantic_rag` see and may query only the `fct_*` marts.
+- **Why:** it keeps the comparison fair: same model and rules, and only the business context changes. Mode tests assert what each prompt contains.
+
+## D17. Lexical retrieval for semantic_rag, not embeddings
+
+- **Options:** embeddings with a vector store; BM25; weighted word overlap on metric names, synonyms and descriptions.
+- **Chosen:** word overlap (name, label and synonym matches score 3; description matches score 1; top 4 metrics), and Jaccard similarity for the top 3 example queries.
+- **Why:** 18 metrics and 14 examples are a small, curated corpus. Synonyms in the YAML do the job embeddings would. There's no extra model competing for the T4, and every retrieval can be explained by the words that matched.
+- **Trade-off:** a paraphrase that shares no words with a synonym ("how much did we sell") misses. The eval breakdown by mode will show whether that costs accuracy.
+- **Guardrail:** the example library must not overlap the golden set, or `semantic_rag` would be scored on recall.
+
+## D18. Grounding: every number in the summary must be a row value or a one-step derivation
+
+- **Chosen:** a regex pulls numbers (with R$, %, k/M/million), and each must match, within the rounding it shows, one of: a cell; a ratio written as a percentage; a column total; the difference, ratio or percentage change between two values in a column (only for columns of 24 values or fewer); the row count or a rank; a date part; or a number in the question. One regeneration with the offending numbers named, then a template summary built from the first row.
+- **Why:** deterministic and explainable. A failure lists the exact numbers that weren't grounded.
+- **Trade-off:** it checks numbers, not claims. "Sales rose" over falling rows would pass. Pairwise derivations over short columns can match an invented number by chance, which is why the cap is 24 values.
+
+## D19. Operational failures return a response, never a 500
+
+- **Chosen:** `/ask` always returns an `AskResponse`. Guard, SQL and output-parse failures give `status: error` with the reason. An unreachable or failing LLM provider gives a clear "LLM provider error" status. Anything unexpected is logged with a stack trace and the request id, and returns a generic error.
+- **Why:** the front end and the eval harness can treat every outcome uniformly, and failures are counted, not lost.
