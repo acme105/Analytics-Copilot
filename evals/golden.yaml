@@ -394,6 +394,7 @@ items:
     question: Show GMV for each month of 2017.
     difficulty: medium
     category: gmv
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
       FROM fct_order_items
@@ -406,6 +407,7 @@ items:
     category: orders
     ordered: true
     notes: "\"Placed\" counts every order whatever its status (D24)."
+    verified: true
     gold_sql: |
       SELECT customer_state, COUNT(*) AS orders FROM fct_orders
       WHERE purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
@@ -427,6 +429,7 @@ items:
     category: delivery
     ordered: true
     notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
+    verified: true
     gold_sql: |
       SELECT customer_state, AVG(CASE WHEN is_late THEN 1 ELSE 0 END) AS late_delivery_rate
       FROM fct_orders
@@ -470,6 +473,7 @@ items:
     difficulty: medium
     category: delivery
     ordered: true
+    verified: true
     gold_sql: |
       SELECT customer_state, AVG(delivery_days) AS avg_delivery_days FROM fct_orders
       WHERE is_delivered
@@ -480,6 +484,7 @@ items:
     question: Show the number of distinct buyers per month in 2018.
     difficulty: medium
     category: customers
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              COUNT(DISTINCT customer_unique_id) AS active_customers
@@ -491,6 +496,7 @@ items:
     question: What was the cancellation rate in each month of 2017?
     difficulty: medium
     category: cancellations
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
@@ -546,6 +552,7 @@ items:
     question: How many first-time buyers did we get in each month of 2017?
     difficulty: medium
     category: customers
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              COUNT(DISTINCT customer_unique_id) AS new_customers
@@ -578,6 +585,7 @@ items:
     question: Compare GMV between São Paulo (SP) and Rio de Janeiro (RJ) in 2017.
     difficulty: medium
     category: gmv
+    verified: true
     gold_sql: |
       SELECT customer_state, SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND customer_state IN ('SP', 'RJ')
@@ -620,6 +628,7 @@ items:
     question: What was the average review score in each month of 2018?
     difficulty: medium
     category: reviews
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              AVG(review_score) AS avg_review_score
@@ -632,6 +641,7 @@ items:
     question: What was the average delivery time in days for each month of 2017?
     difficulty: medium
     category: delivery
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              AVG(delivery_days) AS avg_delivery_days
@@ -645,6 +655,7 @@ items:
     difficulty: medium
     category: gmv
     notes: "Reworded from \"GMV in BA, PE, CE\", which could fairly mean one combined total (D31)."
+    verified: true
     gold_sql: |
       SELECT customer_state, SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND customer_state IN ('BA', 'PE', 'CE')
@@ -688,6 +699,7 @@ items:
     difficulty: medium
     category: orders
     notes: "\"Placed\" counts every order whatever its status (D24)."
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('quarter', purchased_at) AS DATE) AS period, COUNT(*) AS orders
       FROM fct_orders
@@ -700,6 +712,7 @@ items:
     question: What was the average order value for each seller tier in 2018?
     difficulty: medium
     category: sellers
+    verified: true
     gold_sql: |
       SELECT seller_tier, SUM(gmv) / COUNT(*) AS aov FROM fct_orders
       WHERE is_valid AND items > 0
@@ -764,6 +777,7 @@ items:
     difficulty: medium
     category: sellers
     notes: Order-level seller tier is the tier of the order's highest-value item's seller (D8).
+    verified: true
     gold_sql: |
       SELECT seller_tier, COUNT(*) AS orders FROM fct_orders
       WHERE is_valid AND purchased_at >= DATE '2017-01-01' AND purchased_at < DATE '2018-01-01'
@@ -775,6 +789,7 @@ items:
     category: reviews
     ordered: true
     notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
+    verified: true
     gold_sql: |
       SELECT customer_state, AVG(review_score) AS avg_review_score FROM fct_orders
       WHERE review_score IS NOT NULL
@@ -787,6 +802,7 @@ items:
     category: cancellations
     ordered: true
     notes: "Ranked literally, with no minimum volume: states with few orders may lead (D31)."
+    verified: true
     gold_sql: |
       SELECT customer_state, AVG(CASE WHEN is_canceled THEN 1 ELSE 0 END) AS cancellation_rate
       FROM fct_orders
@@ -817,6 +833,7 @@ items:
     question: What was the on-time delivery rate in each month of 2017?
     difficulty: medium
     category: delivery
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period,
              AVG(CASE WHEN is_late THEN 0 ELSE 1 END) AS on_time_delivery_rate
@@ -830,6 +847,7 @@ items:
     difficulty: medium
     category: gmv
     ordered: true
+    verified: true
     gold_sql: |
       SELECT product_category, SUM(price) AS gmv FROM fct_order_items
       WHERE is_valid AND customer_state = 'SP'
@@ -853,6 +871,7 @@ items:
     difficulty: medium
     category: payments
     notes: An order's payment type is its highest-value payment (D8).
+    verified: true
     gold_sql: |
       SELECT CAST(DATE_TRUNC('month', purchased_at) AS DATE) AS period, SUM(price) AS gmv
       FROM fct_order_items
@@ -864,6 +883,7 @@ items:
     question: How many items per order do customers buy with each payment type?
     difficulty: medium
     category: orders
+    verified: true
     gold_sql: |
       SELECT payment_type, AVG(items) AS items_per_order FROM fct_orders
       WHERE is_valid AND items > 0
